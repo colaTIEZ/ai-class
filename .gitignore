@@ -1,0 +1,63 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+*.egg
+dist/
+build/
+.eggs/
+
+# 虚拟环境
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# 环境变量与密钥
+.env
+.env.*
+!.env.example
+
+# 向量数据库本地存储
+chroma_db/
+faiss_index/
+*.faiss
+
+# 上传文件与临时数据
+uploads/
+tmp/
+*.tmp
+
+# 日志
+logs/
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Node (前端)
+node_modules/
+dist/
+.next/
+.nuxt/
+
+# 测试与覆盖率
+.coverage
+htmlcov/
+.pytest_cache/
+.mypy_cache/
+
+# BMad & AI Agents 框架系统文件
+_bmad/
+.agent/
+_progress/
