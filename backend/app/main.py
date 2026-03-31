@@ -11,6 +11,16 @@ from app.core.exceptions import (
 )
 from app.api.v1.health import router as health_router
 
+from contextlib import asynccontextmanager
+from app.services.processing_queue import processing_queue
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    processing_queue.start_worker()
+    yield
+    # Shutdown
+    await processing_queue.stop_worker()
 
 def create_app() -> FastAPI:
     """工厂函数创建 FastAPI 实例"""
@@ -18,6 +28,7 @@ def create_app() -> FastAPI:
         title=settings.app_name,
         version=settings.app_version,
         debug=settings.debug,
+        lifespan=lifespan,
     )
 
     # CORS 中间件配置
@@ -34,7 +45,11 @@ def create_app() -> FastAPI:
     app.add_exception_handler(Exception, generic_exception_handler)
 
     # 注册路由
+    from app.api.v1.health import router as health_router
+    from app.api.v1.documents import router as documents_router
+    
     app.include_router(health_router, prefix="/api/v1", tags=["health"])
+    app.include_router(documents_router, prefix="/api/v1/documents", tags=["documents"])
 
     return app
 

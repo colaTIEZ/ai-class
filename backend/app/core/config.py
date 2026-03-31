@@ -23,6 +23,10 @@ class Settings(BaseSettings):
     openai_base_url: str = ""
     openai_model: str = "deepseek-chat"
 
+    # 上传与队列配置 (2C2G Memory Protection)
+    MAX_UPLOAD_SIZE: int = 10485760  # 10MB
+    MAX_QUEUE_SIZE: int = 100
+
     # 服务器配置
     host: str = "0.0.0.0"
     port: int = 8000

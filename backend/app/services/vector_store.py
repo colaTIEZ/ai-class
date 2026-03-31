@@ -84,6 +84,16 @@ def init_db(conn: Optional[sqlite3.Connection] = None) -> sqlite3.Connection:
         );
     """)
 
+    # 文档处理队列任务表 (Single Source of Truth)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS document_tasks (
+            job_id TEXT PRIMARY KEY,
+            file_path TEXT NOT NULL,
+            status INTEGER DEFAULT 0, -- 0: queued, 1: processing, 2: done, -1: error
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+    """)
+
     # 向量嵌入虚拟表（使用 sqlite-vec）
     # 维度 1536 是 OpenAI text-embedding-3-small 的默认输出维度
     conn.execute("""
@@ -95,3 +105,47 @@ def init_db(conn: Optional[sqlite3.Connection] = None) -> sqlite3.Connection:
 
     conn.commit()
     return conn
+
+def insert_document_nodes(conn: sqlite3.Connection, nodes: list) -> None:
+    """批量插入知识节点和向量嵌入"""
+    # Inserting into knowledge_nodes
+    conn.executemany(
+        """
+        INSERT INTO knowledge_nodes 
+        (node_id, document_id, label, parent_id, content_summary, depth, chunk_text)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+        [
+            (
+                n.node_id, 
+                n.document_id, 
+                n.label, 
+                n.parent_id, 
+                n.content_summary, 
+                n.depth, 
+                n.chunk_text
+            ) for n in nodes
+        ]
+    )
+
+    # Note: sqlite-vec accepts raw json arrays or byte blobs. 
+    # The embeddings are assigned later in process_and_store via a separate function 
+    # or inserted together if already generated. We'll handle inserting the structural records here.
+    conn.commit()
+
+def insert_embeddings(conn: sqlite3.Connection, embeddings_data: list[tuple[str, list[float]]]) -> None:
+    """批量插入向量嵌入到虚拟表 vec_embeddings
+    
+    Args:
+        embeddings_data: list of tuples (node_id, embedding_vector)
+    """
+    import json
+    # sqlite-vec can parse JSON arrays into float vectors via cast
+    conn.executemany(
+        """
+        INSERT INTO vec_embeddings(node_id, embedding) 
+        VALUES (?, cast(? as float[1536]))
+        """,
+        [(node_id, json.dumps(vec)) for node_id, vec in embeddings_data]
+    )
+    conn.commit()
