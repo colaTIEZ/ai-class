@@ -1,0 +1,21 @@
+@import "tailwindcss";
+
+/* ai-class 全局样式 */
+:root {
+  --ai-primary: #6366f1;
+  --ai-bg: #f9fafb;
+  --ai-text: #111827;
+}
+
+body {
+  margin: 0;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  background: var(--ai-bg);
+  color: var(--ai-text);
+}
+
+#app {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 2rem;
+}
