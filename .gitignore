@@ -47,6 +47,14 @@ logs/
 .DS_Store
 Thumbs.db
 desktop.ini
+*.db
+*.sqlite
+*.sqlite3
+data/*.db
+data/*.sqlite
+
+#  用于追踪目录结构
+!data/.gitkeep
 
 # Node (前端)
 node_modules/

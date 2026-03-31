@@ -36,7 +36,7 @@ class ProcessingQueue:
             
         created_at = row["created_at"]
         count_row = conn.execute(
-            "SELECT count(job_id) as pos FROM document_tasks WHERE status = 0 AND created_at <= ?",
+            "SELECT count(job_id) as pos FROM document_tasks WHERE status = 0 AND created_at <= ? ORDER BY created_at ASC",
             (created_at,)
         ).fetchone()
         
@@ -118,11 +118,16 @@ class ProcessingQueue:
                         if not row:
                             raise ValueError(f"Job {j_id} not found")
                         fp = row["file_path"]
-                        # Extract document ID mapping (for simplicity in MVP, using job_id hash)
-                        doc_id = abs(hash(j_id)) % (10**8)
+                        # Fix: avoid hash collisions for doc_id mapping
+                        # Use first 8 characters of UUID hex as a safe integer ID for documents table referencing
+                        doc_id = int(j_id.replace('-', '')[:8], 16)
                         
                         chunks = list(process_pdf_generator(fp))
-                        nodes = extract_hierarchy(doc_id, chunks)
+                        if not chunks:
+                             logger.warning(f"Job {j_id}: PDF produced no text chunks.")
+                             nodes = []
+                        else:
+                             nodes = extract_hierarchy(doc_id, chunks)
                         
                         # Database insertion in a transaction
                         # Step 1: Save hierarchical structural relational nodes
