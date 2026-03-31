@@ -35,6 +35,9 @@ faiss_index/
 uploads/
 tmp/
 *.tmp
+*.bak
+diff*.patch
+diff*.txt
 
 # 日志
 logs/
@@ -47,7 +50,6 @@ desktop.ini
 
 # Node (前端)
 node_modules/
-dist/
 .next/
 .nuxt/
 
@@ -56,8 +58,11 @@ dist/
 htmlcov/
 .pytest_cache/
 .mypy_cache/
+test_out.txt
+*.pyc
 
 # BMad & AI Agents 框架系统文件
 _bmad/
 .agent/
 _progress/
+

@@ -149,3 +149,16 @@ def insert_embeddings(conn: sqlite3.Connection, embeddings_data: list[tuple[str,
         [(node_id, json.dumps(vec)) for node_id, vec in embeddings_data]
     )
     conn.commit()
+
+def get_document_nodes(conn: sqlite3.Connection, document_id: int) -> list[sqlite3.Row]:
+    """Retrieve all knowledge nodes for a given document."""
+    cursor = conn.execute(
+        """
+        SELECT node_id, label, parent_id, content_summary
+        FROM knowledge_nodes
+        WHERE document_id = ?
+        ORDER BY depth, node_id
+        """,
+        (document_id,)
+    )
+    return cursor.fetchall()

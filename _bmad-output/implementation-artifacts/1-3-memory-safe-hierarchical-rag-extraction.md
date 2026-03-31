@@ -1,6 +1,6 @@
 # Story 1.3: 内存安全的分层萃取引擎 (Memory-Safe Hierarchical RAG Extraction)
 
-Status: review
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -82,3 +82,8 @@ Gemini 3.1 Pro (High)
 - `backend/app/services/vector_store.py` (Modified: Added batched data/vector insertions)
 - `backend/app/services/processing_queue.py` (Modified: Replaced mock extraction with thread-safe live RAG pipeline)
 - `backend/tests/test_pdf_parser.py` (New: Validation rules and tests for generator outputs)
+
+### Review Findings
+- [x] [Review][Decision] 缺少数据库和队列集成 — 经核实，`vector_store.py` 和 `processing_queue.py` 中已包含完整的集成逻辑。
+- [x] [Review][Patch] 章节标题可能为空 — 已在 `pdf_parser.py` 中添加后备默认标签。
+

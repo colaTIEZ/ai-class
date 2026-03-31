@@ -11,6 +11,8 @@ from app.core.config import settings
 from app.services.processing_queue import processing_queue
 from app.schemas.queue import QueueResponse, QueueItemData
 from app.core.exceptions import AppException
+from app.schemas.knowledge_tree import KnowledgeTree, KnowledgeNode
+from app.services.vector_store import get_connection, get_document_nodes
 
 logger = logging.getLogger(__name__)
 
@@ -107,3 +109,31 @@ async def get_document_status(job_id: str):
         ),
         message=msg
     )
+
+@router.get("/{document_id}/tree", status_code=status.HTTP_200_OK, response_model=KnowledgeTree)
+async def get_document_tree(document_id: int):
+    """获取文档的层级知识树 (用于前端图谱渲染与边界选圈)"""
+    def fetch_tree(doc_id: int):
+        conn = get_connection()
+        try:
+            return get_document_nodes(conn, doc_id)
+        finally:
+            conn.close()
+            
+    try:
+        nodes_rows = await asyncio.to_thread(fetch_tree, document_id)
+        
+        # Schema matching check: make sure empty lists are correctly returned instead of 404
+        if not nodes_rows:
+            return KnowledgeTree(document_id=document_id, nodes=[], total_nodes=0)
+            
+        nodes_dict_list = [dict(row) for row in nodes_rows]
+        nodes = [KnowledgeNode(**nd) for nd in nodes_dict_list]
+        return KnowledgeTree(
+            document_id=document_id,
+            nodes=nodes,
+            total_nodes=len(nodes)
+        )
+    except Exception as e:
+        logger.error(f"Failed to fetch tree for document {document_id}: {e}")
+        raise AppException("Internal error while fetching knowledge tree.", status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
