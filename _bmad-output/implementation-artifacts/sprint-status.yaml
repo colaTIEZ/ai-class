@@ -46,7 +46,7 @@ development_status:
   1-1-project-scaffold-data-contract-schema: done
   1-2-upload-with-global-singleton-queue: done
   1-3-memory-safe-hierarchical-rag-extraction: done
-  1-4-contract-driven-outline-scope-selection: ready-for-dev
+  1-4-contract-driven-outline-scope-selection: done
   epic-1-retrospective: optional
   epic-2: backlog
   2-1-bounded-question-generation: backlog
