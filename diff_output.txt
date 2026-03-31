@@ -1,0 +1,2983 @@
+diff --git a/.env.example b/.env.example
+new file mode 100644
+index 0000000..d441a3f
+--- /dev/null
++++ b/.env.example
+@@ -0,0 +1,22 @@
++# ai-class 环境配置模板
++# 复制此文件为 .env 并填充实际值
++
++# 应用配置
++APP_NAME=ai-class
++APP_VERSION=0.1.0
++DEBUG=true
++
++# 数据库配置
++DATABASE_PATH=data/ai_class.db
++
++# 外部 AI API 配置（后续 Epic 使用）
++OPENAI_API_KEY=your-api-key-here
++OPENAI_BASE_URL=https://api.deepseek.com/v1
++OPENAI_MODEL=deepseek-chat
++
++# 服务器配置
++HOST=0.0.0.0
++PORT=8000
++
++# CORS 配置（前端开发服务器地址）
++CORS_ORIGINS=["http://localhost:5173"]
+diff --git a/backend/app/__init__.py b/backend/app/__init__.py
+new file mode 100644
+index 0000000..2db95a7
+--- /dev/null
++++ b/backend/app/__init__.py
+@@ -0,0 +1 @@
++# ai-class 后端应用包
+diff --git a/backend/app/api/__init__.py b/backend/app/api/__init__.py
+new file mode 100644
+index 0000000..b25fe33
+--- /dev/null
++++ b/backend/app/api/__init__.py
+@@ -0,0 +1 @@
++# API 路由包
+diff --git a/backend/app/api/v1/__init__.py b/backend/app/api/v1/__init__.py
+new file mode 100644
+index 0000000..e98db4e
+--- /dev/null
++++ b/backend/app/api/v1/__init__.py
+@@ -0,0 +1 @@
++# API v1 路由包
+diff --git a/backend/app/api/v1/chat.py b/backend/app/api/v1/chat.py
+new file mode 100644
+index 0000000..f9ac7b4
+--- /dev/null
++++ b/backend/app/api/v1/chat.py
+@@ -0,0 +1 @@
++# 聊天路由占位（将在 Epic 2 中实现）
+diff --git a/backend/app/api/v1/documents.py b/backend/app/api/v1/documents.py
+new file mode 100644
+index 0000000..05feb0d
+--- /dev/null
++++ b/backend/app/api/v1/documents.py
+@@ -0,0 +1 @@
++# 文档管理路由占位（将在后续 Story 中实现）
+diff --git a/backend/app/api/v1/health.py b/backend/app/api/v1/health.py
+new file mode 100644
+index 0000000..7bb3394
+--- /dev/null
++++ b/backend/app/api/v1/health.py
+@@ -0,0 +1,20 @@
++"""健康检查端点 - 验证前后端连通性"""
++
++from fastapi import APIRouter
++
++router = APIRouter()
++
++
++@router.get("/health")
++async def health_check():
++    """基础健康检查，返回标准 API 信封格式"""
++    return {
++        "status": "success",
++        "data": {
++            "service": "ai-class",
++            "version": "0.1.0",
++            "health": "ok",
++        },
++        "message": "",
++        "trace_id": "",
++    }
+diff --git a/backend/app/core/__init__.py b/backend/app/core/__init__.py
+new file mode 100644
+index 0000000..f69f692
+--- /dev/null
++++ b/backend/app/core/__init__.py
+@@ -0,0 +1 @@
++# 核心模块包
+diff --git a/backend/app/core/config.py b/backend/app/core/config.py
+new file mode 100644
+index 0000000..131b705
+--- /dev/null
++++ b/backend/app/core/config.py
+@@ -0,0 +1,41 @@
++"""应用配置模块 - 使用 pydantic-settings 管理环境变量"""
++
++from pydantic_settings import BaseSettings
++from pathlib import Path
++
++
++class Settings(BaseSettings):
++    """全局应用设置，通过 .env 文件或环境变量加载"""
++
++    # 应用基本信息
++    app_name: str = "ai-class"
++    app_version: str = "0.1.0"
++    debug: bool = False
++
++    # 数据库配置
++    database_url: str = "sqlite:///data/ai_class.db"
++    database_path: str = str(
++        Path(__file__).resolve().parent.parent.parent / "data" / "ai_class.db"
++    )
++
++    # 外部 API 配置（后续 Epic 使用）
++    openai_api_key: str = ""
++    openai_base_url: str = ""
++    openai_model: str = "deepseek-chat"
++
++    # 服务器配置
++    host: str = "0.0.0.0"
++    port: int = 8000
++
++    # CORS 配置
++    cors_origins: list[str] = ["http://localhost:5173"]
++
++    model_config = {
++        "env_file": ".env",
++        "env_file_encoding": "utf-8",
++        "extra": "ignore",
++    }
++
++
++# 全局单例
++settings = Settings()
+diff --git a/backend/app/core/exceptions.py b/backend/app/core/exceptions.py
+new file mode 100644
+index 0000000..ac72fc4
+--- /dev/null
++++ b/backend/app/core/exceptions.py
+@@ -0,0 +1,39 @@
++"""全局异常处理 - 统一 API 错误响应格式"""
++
++from fastapi import Request
++from fastapi.responses import JSONResponse
++
++
++class AppException(Exception):
++    """应用自定义异常基类"""
++
++    def __init__(self, message: str, status_code: int = 400):
++        self.message = message
++        self.status_code = status_code
++        super().__init__(self.message)
++
++
++async def app_exception_handler(request: Request, exc: AppException) -> JSONResponse:
++    """统一异常处理器，返回标准 API 信封格式"""
++    return JSONResponse(
++        status_code=exc.status_code,
++        content={
++            "status": "error",
++            "data": None,
++            "message": exc.message,
++            "trace_id": "",
++        },
++    )
++
++
++async def generic_exception_handler(request: Request, exc: Exception) -> JSONResponse:
++    """兜底异常处理器"""
++    return JSONResponse(
++        status_code=500,
++        content={
++            "status": "error",
++            "data": None,
++            "message": "Internal server error",
++            "trace_id": "",
++        },
++    )
+diff --git a/backend/app/graph/__init__.py b/backend/app/graph/__init__.py
+new file mode 100644
+index 0000000..85a3b3d
+--- /dev/null
++++ b/backend/app/graph/__init__.py
+@@ -0,0 +1 @@
++# LangGraph 编排引擎包（将在 Epic 2 中实现）
+diff --git a/backend/app/graph/nodes/__init__.py b/backend/app/graph/nodes/__init__.py
+new file mode 100644
+index 0000000..bf367c2
+--- /dev/null
++++ b/backend/app/graph/nodes/__init__.py
+@@ -0,0 +1 @@
++# LangGraph 图节点包（将在 Epic 2 中实现）
+diff --git a/backend/app/main.py b/backend/app/main.py
+new file mode 100644
+index 0000000..84433c0
+--- /dev/null
++++ b/backend/app/main.py
+@@ -0,0 +1,42 @@
++"""FastAPI 应用入口 - ai-class 后端服务"""
++
++from fastapi import FastAPI
++from fastapi.middleware.cors import CORSMiddleware
++
++from app.core.config import settings
++from app.core.exceptions import (
++    AppException,
++    app_exception_handler,
++    generic_exception_handler,
++)
++from app.api.v1.health import router as health_router
++
++
++def create_app() -> FastAPI:
++    """工厂函数创建 FastAPI 实例"""
++    app = FastAPI(
++        title=settings.app_name,
++        version=settings.app_version,
++        debug=settings.debug,
++    )
++
++    # CORS 中间件配置
++    app.add_middleware(
++        CORSMiddleware,
++        allow_origins=settings.cors_origins,
++        allow_credentials=True,
++        allow_methods=["*"],
++        allow_headers=["*"],
++    )
++
++    # 注册全局异常处理器
++    app.add_exception_handler(AppException, app_exception_handler)
++    app.add_exception_handler(Exception, generic_exception_handler)
++
++    # 注册路由
++    app.include_router(health_router, prefix="/api/v1", tags=["health"])
++
++    return app
++
++
++app = create_app()
+diff --git a/backend/app/schemas/__init__.py b/backend/app/schemas/__init__.py
+new file mode 100644
+index 0000000..e4b3b61
+--- /dev/null
++++ b/backend/app/schemas/__init__.py
+@@ -0,0 +1 @@
++# 数据校验模型包
+diff --git a/backend/app/schemas/knowledge_tree.py b/backend/app/schemas/knowledge_tree.py
+new file mode 100644
+index 0000000..392536b
+--- /dev/null
++++ b/backend/app/schemas/knowledge_tree.py
+@@ -0,0 +1,61 @@
++"""知识树数据契约 - 前后端共享的严格数据结构定义
++
++此模块定义了从 PDF 中提取的知识点层级结构的数据格式。
++前端的 AntV G6 图可视化和后端的 RAG 检索都严格依赖此契约。
++"""
++
++from pydantic import BaseModel, Field
++from typing import Optional
++from datetime import datetime
++
++
++class KnowledgeNode(BaseModel):
++    """单个知识节点的数据模型
++
++    通过 parent_id 构建 Chapter -> Section -> Chunk 的层级关系。
++    """
++
++    node_id: str = Field(
++        ...,
++        description="节点唯一标识符，格式: doc_{document_id}_node_{序号}",
++        examples=["doc_1_node_001"],
++    )
++    label: str = Field(
++        ...,
++        description="节点展示标签（章节/知识点名称）",
++        examples=["第一章：线性代数基础"],
++    )
++    parent_id: Optional[str] = Field(
++        default=None,
++        description="父节点 ID，根节点为 None",
++        examples=["doc_1_node_000"],
++    )
++    content_summary: str = Field(
++        ...,
++        description="节点内容摘要，用于前端预览和 RAG 上下文检索",
++        examples=["本章介绍矩阵运算、特征值分解等核心概念"],
++    )
++
++
++class KnowledgeNodeInDB(KnowledgeNode):
++    """数据库中存储的知识节点，包含额外的元数据字段"""
++
++    document_id: int = Field(..., description="所属文档 ID")
++    depth: int = Field(default=0, description="节点在树中的深度层级，0 为根节点")
++    chunk_text: Optional[str] = Field(
++        default=None, description="完整文本块内容，用于生成嵌入向量"
++    )
++    created_at: str = Field(
++        default_factory=lambda: datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
++        description="创建时间，ISO 8601 UTC 格式",
++    )
++
++
++class KnowledgeTree(BaseModel):
++    """完整知识树响应模型"""
++
++    document_id: int = Field(..., description="文档 ID")
++    nodes: list[KnowledgeNode] = Field(
++        default_factory=list, description="知识节点列表"
++    )
++    total_nodes: int = Field(default=0, description="节点总数")
+diff --git a/backend/app/services/__init__.py b/backend/app/services/__init__.py
+new file mode 100644
+index 0000000..92ff558
+--- /dev/null
++++ b/backend/app/services/__init__.py
+@@ -0,0 +1 @@
++# 服务层包
+diff --git a/backend/app/services/vector_store.py b/backend/app/services/vector_store.py
+new file mode 100644
+index 0000000..a2b62cf
+--- /dev/null
++++ b/backend/app/services/vector_store.py
+@@ -0,0 +1,97 @@
++"""SQLite + sqlite-vec 向量存储交互层
++
++提供极轻量级的本地向量检索功能，零额外进程开销，
++完全适配 2C2G 服务器环境。
++"""
++
++import sqlite3
++from pathlib import Path
++from typing import Optional
++
++import sqlite_vec
++
++from app.core.config import settings
++
++
++def get_db_path() -> str:
++    """获取数据库文件的绝对路径"""
++    db_path = Path(settings.database_path)
++    # 确保数据目录存在
++    db_path.parent.mkdir(parents=True, exist_ok=True)
++    return str(db_path)
++
++
++def get_connection(db_path: Optional[str] = None) -> sqlite3.Connection:
++    """创建并返回一个已加载 sqlite-vec 扩展的 SQLite 连接
++
++    Args:
++        db_path: 可选的自定义数据库路径，默认使用配置中的路径
++
++    Returns:
++        已配置好 WAL 模式和 sqlite-vec 扩展的连接对象
++    """
++    path = db_path or get_db_path()
++    conn = sqlite3.connect(path)
++    conn.row_factory = sqlite3.Row
++
++    # 启用 WAL 模式以提升并发性能
++    conn.execute("PRAGMA journal_mode=WAL;")
++
++    # 加载 sqlite-vec C 扩展
++    conn.enable_load_extension(True)
++    sqlite_vec.load(conn)
++    conn.enable_load_extension(False)
++
++    return conn
++
++
++def init_db(conn: Optional[sqlite3.Connection] = None) -> sqlite3.Connection:
++    """初始化数据库表结构
++
++    Args:
++        conn: 可选的已有连接。如未提供，将创建新连接。
++
++    Returns:
++        已初始化表结构的数据库连接
++    """
++    if conn is None:
++        conn = get_connection()
++
++    # 知识节点关系表
++    conn.execute("""
++        CREATE TABLE IF NOT EXISTS knowledge_nodes (
++            node_id TEXT PRIMARY KEY,
++            document_id INTEGER NOT NULL,
++            label TEXT NOT NULL,
++            parent_id TEXT,
++            content_summary TEXT NOT NULL,
++            depth INTEGER DEFAULT 0,
++            chunk_text TEXT,
++            created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
++        );
++    """)
++
++    # 文档元信息表
++    conn.execute("""
++        CREATE TABLE IF NOT EXISTS documents (
++            id INTEGER PRIMARY KEY AUTOINCREMENT,
++            filename TEXT NOT NULL,
++            file_size INTEGER NOT NULL,
++            status TEXT NOT NULL DEFAULT 'pending',
++            total_nodes INTEGER DEFAULT 0,
++            created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
++            updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
++        );
++    """)
++
++    # 向量嵌入虚拟表（使用 sqlite-vec）
++    # 维度 1536 是 OpenAI text-embedding-3-small 的默认输出维度
++    conn.execute("""
++        CREATE VIRTUAL TABLE IF NOT EXISTS vec_embeddings USING vec0(
++            node_id TEXT PRIMARY KEY,
++            embedding float[1536]
++        );
++    """)
++
++    conn.commit()
++    return conn
+diff --git a/backend/data/.gitkeep b/backend/data/.gitkeep
+new file mode 100644
+index 0000000..71536c9
+--- /dev/null
++++ b/backend/data/.gitkeep
+@@ -0,0 +1,2 @@
++# SQLite 数据库文件将存储在此目录
++# 此文件确保 Git 追踪此空目录
+diff --git a/backend/requirements.txt b/backend/requirements.txt
+new file mode 100644
+index 0000000..a876e60
+Binary files /dev/null and b/backend/requirements.txt differ
+diff --git a/backend/tests/__init__.py b/backend/tests/__init__.py
+new file mode 100644
+index 0000000..2ebc8c3
+--- /dev/null
++++ b/backend/tests/__init__.py
+@@ -0,0 +1 @@
++# 测试包
+diff --git a/backend/tests/conftest.py b/backend/tests/conftest.py
+new file mode 100644
+index 0000000..a9d4241
+--- /dev/null
++++ b/backend/tests/conftest.py
+@@ -0,0 +1,12 @@
++"""Pytest 配置 - 提供测试用 FastAPI 客户端"""
++
++import pytest
++from fastapi.testclient import TestClient
++
++from app.main import app
++
++
++@pytest.fixture
++def client():
++    """创建测试用 HTTP 客户端"""
++    return TestClient(app)
+diff --git a/backend/tests/test_health.py b/backend/tests/test_health.py
+new file mode 100644
+index 0000000..3182857
+--- /dev/null
++++ b/backend/tests/test_health.py
+@@ -0,0 +1,42 @@
++"""测试健康检查端点和 API 信封格式"""
++
++
++def test_health_endpoint_returns_200(client):
++    """验证健康检查端点返回 200 状态码"""
++    response = client.get("/api/v1/health")
++    assert response.status_code == 200
++
++
++def test_health_endpoint_standard_envelope(client):
++    """验证返回数据严格遵循 API 标准信封格式"""
++    response = client.get("/api/v1/health")
++    data = response.json()
++
++    # 必须包含标准信封的四个顶层字段
++    assert "status" in data
++    assert "data" in data
++    assert "message" in data
++    assert "trace_id" in data
++
++    # 验证值
++    assert data["status"] == "success"
++    assert data["data"]["service"] == "ai-class"
++    assert data["data"]["health"] == "ok"
++    assert data["message"] == ""
++    assert data["trace_id"] == ""
++
++
++def test_health_endpoint_response_keys_are_snake_case(client):
++    """验证所有 JSON key 都使用 snake_case 命名"""
++    response = client.get("/api/v1/health")
++    data = response.json()
++
++    for key in data.keys():
++        assert "_" in key or key.islower(), (
++            f"Key '{key}' is not snake_case"
++        )
++
++    for key in data["data"].keys():
++        assert "_" in key or key.islower(), (
++            f"Nested key '{key}' is not snake_case"
++        )
+diff --git a/backend/tests/test_integration.py b/backend/tests/test_integration.py
+new file mode 100644
+index 0000000..b2231d0
+--- /dev/null
++++ b/backend/tests/test_integration.py
+@@ -0,0 +1,52 @@
++"""前后端集成测试 - 验证 API 端点符合前端预期的标准信封格式"""
++
++
++def test_health_endpoint_matches_frontend_contract(client):
++    """验证 /api/v1/health 返回的数据格式与前端 TypeScript 接口完全匹配
++
++    前端 ApiEnvelope<HealthData> 接口要求:
++    - status: 'success' | 'error'
++    - data: { service: string, version: string, health: string }
++    - message: string
++    - trace_id: string
++    """
++    response = client.get("/api/v1/health")
++    assert response.status_code == 200
++
++    data = response.json()
++
++    # 验证 ApiEnvelope 结构
++    assert isinstance(data["status"], str)
++    assert data["status"] in ("success", "error")
++    assert isinstance(data["data"], dict)
++    assert isinstance(data["message"], str)
++    assert isinstance(data["trace_id"], str)
++
++    # 验证 HealthData 结构
++    health_data = data["data"]
++    assert isinstance(health_data["service"], str)
++    assert isinstance(health_data["version"], str)
++    assert isinstance(health_data["health"], str)
++
++    # 验证具体值
++    assert health_data["service"] == "ai-class"
++    assert health_data["health"] == "ok"
++
++
++def test_cors_headers_allow_frontend(client):
++    """验证 CORS 配置允许前端开发服务器 (localhost:5173) 的跨域请求"""
++    response = client.options(
++        "/api/v1/health",
++        headers={
++            "Origin": "http://localhost:5173",
++            "Access-Control-Request-Method": "GET",
++        },
++    )
++    # FastAPI CORS 中间件会在 OPTIONS 预检请求上返回 CORS 头
++    assert response.status_code == 200
++
++
++def test_nonexistent_endpoint_returns_json(client):
++    """验证不存在的端点返回 404 而不是 HTML 错误页"""
++    response = client.get("/api/v1/nonexistent")
++    assert response.status_code == 404
+diff --git a/backend/tests/test_schemas.py b/backend/tests/test_schemas.py
+new file mode 100644
+index 0000000..aa6fc12
+--- /dev/null
++++ b/backend/tests/test_schemas.py
+@@ -0,0 +1,137 @@
++"""测试 knowledge_tree 数据契约的严格性"""
++
++import pytest
++from pydantic import ValidationError
++
++from app.schemas.knowledge_tree import KnowledgeNode, KnowledgeNodeInDB, KnowledgeTree
++
++
++class TestKnowledgeNode:
++    """测试基础知识节点模型"""
++
++    def test_valid_node_creation(self):
++        """验证合法节点能正常创建"""
++        node = KnowledgeNode(
++            node_id="doc_1_node_001",
++            label="第一章：线性代数",
++            parent_id=None,
++            content_summary="介绍矩阵运算基础",
++        )
++        assert node.node_id == "doc_1_node_001"
++        assert node.label == "第一章：线性代数"
++        assert node.parent_id is None
++        assert node.content_summary == "介绍矩阵运算基础"
++
++    def test_node_with_parent(self):
++        """验证带 parent_id 的子节点创建"""
++        node = KnowledgeNode(
++            node_id="doc_1_node_002",
++            label="1.1 矩阵乘法",
++            parent_id="doc_1_node_001",
++            content_summary="矩阵乘法规则和性质",
++        )
++        assert node.parent_id == "doc_1_node_001"
++
++    def test_missing_required_field_raises_error(self):
++        """验证缺少必填字段时抛出 ValidationError"""
++        with pytest.raises(ValidationError):
++            KnowledgeNode(
++                node_id="doc_1_node_001",
++                # 缺少 label
++                content_summary="some summary",
++            )
++
++    def test_missing_node_id_raises_error(self):
++        """验证缺少 node_id 时抛出 ValidationError"""
++        with pytest.raises(ValidationError):
++            KnowledgeNode(
++                label="测试",
++                content_summary="摘要",
++            )
++
++    def test_missing_content_summary_raises_error(self):
++        """验证缺少 content_summary 时抛出 ValidationError"""
++        with pytest.raises(ValidationError):
++            KnowledgeNode(
++                node_id="doc_1_node_001",
++                label="测试",
++            )
++
++    def test_contract_enforces_all_four_fields(self):
++        """验证契约强制包含所有四个字段: node_id, label, parent_id, content_summary"""
++        node = KnowledgeNode(
++            node_id="test_id",
++            label="test_label",
++            parent_id="parent",
++            content_summary="summary",
++        )
++        # 导出的字典必须包含全部四个契约字段
++        exported = node.model_dump()
++        assert "node_id" in exported
++        assert "label" in exported
++        assert "parent_id" in exported
++        assert "content_summary" in exported
++
++
++class TestKnowledgeNodeInDB:
++    """测试数据库层知识节点模型"""
++
++    def test_db_node_has_extra_fields(self):
++        """验证数据库模型包含扩展字段"""
++        node = KnowledgeNodeInDB(
++            node_id="doc_1_node_001",
++            label="测试节点",
++            content_summary="测试摘要",
++            document_id=1,
++            depth=0,
++        )
++        assert node.document_id == 1
++        assert node.depth == 0
++        assert node.created_at is not None
++
++    def test_created_at_is_iso8601(self):
++        """验证时间格式符合 ISO 8601 UTC 标准"""
++        node = KnowledgeNodeInDB(
++            node_id="doc_1_node_001",
++            label="测试",
++            content_summary="摘要",
++            document_id=1,
++        )
++        # ISO 8601 格式必须以 Z 结尾
++        assert node.created_at.endswith("Z")
++        assert "T" in node.created_at
++
++
++class TestKnowledgeTree:
++    """测试完整知识树响应模型"""
++
++    def test_empty_tree(self):
++        """验证空树创建"""
++        tree = KnowledgeTree(document_id=1)
++        assert tree.document_id == 1
++        assert tree.nodes == []
++        assert tree.total_nodes == 0
++
++    def test_tree_with_nodes(self):
++        """验证带节点的树"""
++        nodes = [
++            KnowledgeNode(
++                node_id="doc_1_node_001",
++                label="根节点",
++                parent_id=None,
++                content_summary="根摘要",
++            ),
++            KnowledgeNode(
++                node_id="doc_1_node_002",
++                label="子节点",
++                parent_id="doc_1_node_001",
++                content_summary="子摘要",
++            ),
++        ]
++        tree = KnowledgeTree(
++            document_id=1,
++            nodes=nodes,
++            total_nodes=2,
++        )
++        assert len(tree.nodes) == 2
++        assert tree.total_nodes == 2
+diff --git a/backend/tests/test_vector.py b/backend/tests/test_vector.py
+new file mode 100644
+index 0000000..76f1bce
+--- /dev/null
++++ b/backend/tests/test_vector.py
+@@ -0,0 +1,177 @@
++"""sqlite-vec 向量功能验证测试
++
++证明 C 扩展在宿主机上稳定工作，
++包括向量插入、余弦相似度检索等核心操作。
++"""
++
++import sqlite3
++import struct
++import os
++import tempfile
++
++import pytest
++import sqlite_vec
++
++
++def _serialize_float32(vector: list[float]) -> bytes:
++    """将 Python float 列表序列化为 sqlite-vec 需要的二进制格式"""
++    return struct.pack(f"{len(vector)}f", *vector)
++
++
++@pytest.fixture
++def vec_conn():
++    """创建一个临时的内存数据库连接并加载 sqlite-vec"""
++    conn = sqlite3.connect(":memory:")
++    conn.enable_load_extension(True)
++    sqlite_vec.load(conn)
++    conn.enable_load_extension(False)
++    return conn
++
++
++class TestSqliteVecExtension:
++    """验证 sqlite-vec C 扩展基础功能"""
++
++    def test_extension_loads_successfully(self, vec_conn):
++        """验证 sqlite-vec 扩展能够成功加载"""
++        # 如果能走到这里，说明扩展加载成功
++        result = vec_conn.execute("SELECT vec_version()").fetchone()
++        assert result is not None
++        assert len(result[0]) > 0  # 版本字符串非空
++
++    def test_vec_version_is_string(self, vec_conn):
++        """验证版本函数返回合法字符串"""
++        version = vec_conn.execute("SELECT vec_version()").fetchone()[0]
++        # 版本号格式: X.Y.Z
++        parts = version.split(".")
++        assert len(parts) >= 2
++
++    def test_create_virtual_table(self, vec_conn):
++        """验证能创建向量虚拟表"""
++        vec_conn.execute("""
++            CREATE VIRTUAL TABLE test_vectors USING vec0(
++                id TEXT PRIMARY KEY,
++                embedding float[4]
++            );
++        """)
++        # 如果没有抛出异常即通过
++        assert True
++
++
++class TestVectorSimilarity:
++    """验证向量相似度检索核心功能"""
++
++    @pytest.fixture(autouse=True)
++    def setup_table(self, vec_conn):
++        """每个测试前创建并填充测试向量表"""
++        self.conn = vec_conn
++        self.conn.execute("""
++            CREATE VIRTUAL TABLE test_vecs USING vec0(
++                id TEXT PRIMARY KEY,
++                embedding float[4]
++            );
++        """)
++
++        # 插入测试向量
++        test_data = [
++            ("vec_a", [1.0, 0.0, 0.0, 0.0]),
++            ("vec_b", [0.0, 1.0, 0.0, 0.0]),
++            ("vec_c", [0.9, 0.1, 0.0, 0.0]),  # 与 vec_a 高度相似
++            ("vec_d", [0.0, 0.0, 1.0, 0.0]),
++        ]
++        for vec_id, embedding in test_data:
++            self.conn.execute(
++                "INSERT INTO test_vecs(id, embedding) VALUES (?, ?)",
++                (vec_id, _serialize_float32(embedding)),
++            )
++
++    def test_vector_insert_and_count(self):
++        """验证向量能正确插入并统计"""
++        count = self.conn.execute(
++            "SELECT COUNT(*) FROM test_vecs"
++        ).fetchone()[0]
++        assert count == 4
++
++    def test_knn_similarity_search(self):
++        """验证 K 近邻相似度检索返回最近的向量"""
++        query_vec = _serialize_float32([1.0, 0.0, 0.0, 0.0])
++
++        results = self.conn.execute(
++            """
++            SELECT id, distance
++            FROM test_vecs
++            WHERE embedding MATCH ? AND k = 3
++            ORDER BY distance
++            """,
++            (query_vec,),
++        ).fetchall()
++
++        assert len(results) == 3
++        # 与 query [1,0,0,0] 最近的应该是 vec_a（完全匹配）
++        assert results[0][0] == "vec_a"
++        assert results[0][1] == pytest.approx(0.0, abs=1e-6)
++
++    def test_similarity_ranking_order(self):
++        """验证相似度排序正确性：vec_a > vec_c > vec_b/vec_d"""
++        query_vec = _serialize_float32([1.0, 0.0, 0.0, 0.0])
++
++        results = self.conn.execute(
++            """
++            SELECT id, distance
++            FROM test_vecs
++            WHERE embedding MATCH ? AND k = 4
++            ORDER BY distance
++            """,
++            (query_vec,),
++        ).fetchall()
++
++        ids = [r[0] for r in results]
++        # vec_a 应排第一（完全匹配），vec_c 应排第二（高度相似）
++        assert ids[0] == "vec_a"
++        assert ids[1] == "vec_c"
++
++
++class TestVectorStoreService:
++    """验证 vector_store 服务层功能"""
++
++    def test_get_connection_with_custom_path(self):
++        """验证自定义路径创建连接"""
++        from app.services.vector_store import get_connection
++
++        with tempfile.TemporaryDirectory() as tmpdir:
++            db_path = os.path.join(tmpdir, "test.db")
++            conn = get_connection(db_path)
++
++            # 验证 sqlite-vec 已加载
++            version = conn.execute("SELECT vec_version()").fetchone()[0]
++            assert version is not None
++
++            conn.close()
++
++    def test_init_db_creates_tables(self):
++        """验证 init_db 正确创建所有必要表"""
++        from app.services.vector_store import get_connection, init_db
++
++        with tempfile.TemporaryDirectory() as tmpdir:
++            db_path = os.path.join(tmpdir, "test.db")
++            conn = get_connection(db_path)
++            init_db(conn)
++
++            # 验证 knowledge_nodes 表存在
++            result = conn.execute(
++                "SELECT name FROM sqlite_master WHERE type='table' AND name='knowledge_nodes'"
++            ).fetchone()
++            assert result is not None
++
++            # 验证 documents 表存在
++            result = conn.execute(
++                "SELECT name FROM sqlite_master WHERE type='table' AND name='documents'"
++            ).fetchone()
++            assert result is not None
++
++            # 验证 vec_embeddings 虚拟表存在
++            result = conn.execute(
++                "SELECT name FROM sqlite_master WHERE type='table' AND name='vec_embeddings'"
++            ).fetchone()
++            assert result is not None
++
++            conn.close()
+diff --git a/frontend/.gitignore b/frontend/.gitignore
+new file mode 100644
+index 0000000..a547bf3
+--- /dev/null
++++ b/frontend/.gitignore
+@@ -0,0 +1,24 @@
++# Logs
++logs
++*.log
++npm-debug.log*
++yarn-debug.log*
++yarn-error.log*
++pnpm-debug.log*
++lerna-debug.log*
++
++node_modules
++dist
++dist-ssr
++*.local
++
++# Editor directories and files
++.vscode/*
++!.vscode/extensions.json
++.idea
++.DS_Store
++*.suo
++*.ntvs*
++*.njsproj
++*.sln
++*.sw?
+diff --git a/frontend/README.md b/frontend/README.md
+new file mode 100644
+index 0000000..33895ab
+--- /dev/null
++++ b/frontend/README.md
+@@ -0,0 +1,5 @@
++# Vue 3 + TypeScript + Vite
++
++This template should help get you started developing with Vue 3 and TypeScript in Vite. The template uses Vue 3 `<script setup>` SFCs, check out the [script setup docs](https://v3.vuejs.org/api/sfc-script-setup.html#sfc-script-setup) to learn more.
++
++Learn more about the recommended Project Setup and IDE Support in the [Vue Docs TypeScript Guide](https://vuejs.org/guide/typescript/overview.html#project-setup).
+diff --git a/frontend/index.html b/frontend/index.html
+new file mode 100644
+index 0000000..096d706
+--- /dev/null
++++ b/frontend/index.html
+@@ -0,0 +1,13 @@
++<!doctype html>
++<html lang="en">
++  <head>
++    <meta charset="UTF-8" />
++    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
++    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
++    <title>frontend</title>
++  </head>
++  <body>
++    <div id="app"></div>
++    <script type="module" src="/src/main.ts"></script>
++  </body>
++</html>
+diff --git a/frontend/package-lock.json b/frontend/package-lock.json
+new file mode 100644
+index 0000000..842fef7
+--- /dev/null
++++ b/frontend/package-lock.json
+@@ -0,0 +1,1613 @@
++{
++  "name": "frontend",
++  "version": "0.0.0",
++  "lockfileVersion": 3,
++  "requires": true,
++  "packages": {
++    "": {
++      "name": "frontend",
++      "version": "0.0.0",
++      "dependencies": {
++        "vue": "^3.5.30"
++      },
++      "devDependencies": {
++        "@tailwindcss/vite": "^4.2.2",
++        "@types/node": "^24.12.0",
++        "@vitejs/plugin-vue": "^6.0.5",
++        "@vue/tsconfig": "^0.9.0",
++        "tailwindcss": "^4.2.2",
++        "typescript": "~5.9.3",
++        "vite": "^8.0.1",
++        "vue-tsc": "^3.2.5"
++      }
++    },
++    "node_modules/@babel/helper-string-parser": {
++      "version": "7.27.1",
++      "resolved": "https://registry.npmmirror.com/@babel/helper-string-parser/-/helper-string-parser-7.27.1.tgz",
++      "integrity": "sha512-qMlSxKbpRlAridDExk92nSobyDdpPijUq2DW6oDnUqd0iOGxmQjyqhMIihI9+zv4LPyZdRje2cavWPbCbWm3eA==",
++      "license": "MIT",
++      "engines": {
++        "node": ">=6.9.0"
++      }
++    },
++    "node_modules/@babel/helper-validator-identifier": {
++      "version": "7.28.5",
++      "resolved": "https://registry.npmmirror.com/@babel/helper-validator-identifier/-/helper-validator-identifier-7.28.5.tgz",
++      "integrity": "sha512-qSs4ifwzKJSV39ucNjsvc6WVHs6b7S03sOh2OcHF9UHfVPqWWALUsNUVzhSBiItjRZoLHx7nIarVjqKVusUZ1Q==",
++      "license": "MIT",
++      "engines": {
++        "node": ">=6.9.0"
++      }
++    },
++    "node_modules/@babel/parser": {
++      "version": "7.29.2",
++      "resolved": "https://registry.npmmirror.com/@babel/parser/-/parser-7.29.2.tgz",
++      "integrity": "sha512-4GgRzy/+fsBa72/RZVJmGKPmZu9Byn8o4MoLpmNe1m8ZfYnz5emHLQz3U4gLud6Zwl0RZIcgiLD7Uq7ySFuDLA==",
++      "license": "MIT",
++      "dependencies": {
++        "@babel/types": "^7.29.0"
++      },
++      "bin": {
++        "parser": "bin/babel-parser.js"
++      },
++      "engines": {
++        "node": ">=6.0.0"
++      }
++    },
++    "node_modules/@babel/types": {
++      "version": "7.29.0",
++      "resolved": "https://registry.npmmirror.com/@babel/types/-/types-7.29.0.tgz",
++      "integrity": "sha512-LwdZHpScM4Qz8Xw2iKSzS+cfglZzJGvofQICy7W7v4caru4EaAmyUuO6BGrbyQ2mYV11W0U8j5mBhd14dd3B0A==",
++      "license": "MIT",
++      "dependencies": {
++        "@babel/helper-string-parser": "^7.27.1",
++        "@babel/helper-validator-identifier": "^7.28.5"
++      },
++      "engines": {
++        "node": ">=6.9.0"
++      }
++    },
++    "node_modules/@emnapi/core": {
++      "version": "1.9.1",
++      "resolved": "https://registry.npmmirror.com/@emnapi/core/-/core-1.9.1.tgz",
++      "integrity": "sha512-mukuNALVsoix/w1BJwFzwXBN/dHeejQtuVzcDsfOEsdpCumXb/E9j8w11h5S54tT1xhifGfbbSm/ICrObRb3KA==",
++      "dev": true,
++      "license": "MIT",
++      "optional": true,
++      "dependencies": {
++        "@emnapi/wasi-threads": "1.2.0",
++        "tslib": "^2.4.0"
++      }
++    },
++    "node_modules/@emnapi/runtime": {
++      "version": "1.9.1",
++      "resolved": "https://registry.npmmirror.com/@emnapi/runtime/-/runtime-1.9.1.tgz",
++      "integrity": "sha512-VYi5+ZVLhpgK4hQ0TAjiQiZ6ol0oe4mBx7mVv7IflsiEp0OWoVsp/+f9Vc1hOhE0TtkORVrI1GvzyreqpgWtkA==",
++      "dev": true,
++      "license": "MIT",
++      "optional": true,
++      "dependencies": {
++        "tslib": "^2.4.0"
++      }
++    },
++    "node_modules/@emnapi/wasi-threads": {
++      "version": "1.2.0",
++      "resolved": "https://registry.npmmirror.com/@emnapi/wasi-threads/-/wasi-threads-1.2.0.tgz",
++      "integrity": "sha512-N10dEJNSsUx41Z6pZsXU8FjPjpBEplgH24sfkmITrBED1/U2Esum9F3lfLrMjKHHjmi557zQn7kR9R+XWXu5Rg==",
++      "dev": true,
++      "license": "MIT",
++      "optional": true,
++      "dependencies": {
++        "tslib": "^2.4.0"
++      }
++    },
++    "node_modules/@jridgewell/gen-mapping": {
++      "version": "0.3.13",
++      "resolved": "https://registry.npmmirror.com/@jridgewell/gen-mapping/-/gen-mapping-0.3.13.tgz",
++      "integrity": "sha512-2kkt/7niJ6MgEPxF0bYdQ6etZaA+fQvDcLKckhy1yIQOzaoKjBBjSj63/aLVjYE3qhRt5dvM+uUyfCg6UKCBbA==",
++      "dev": true,
++      "license": "MIT",
++      "dependencies": {
++        "@jridgewell/sourcemap-codec": "^1.5.0",
++        "@jridgewell/trace-mapping": "^0.3.24"
++      }
++    },
++    "node_modules/@jridgewell/remapping": {
++      "version": "2.3.5",
++      "resolved": "https://registry.npmmirror.com/@jridgewell/remapping/-/remapping-2.3.5.tgz",
++      "integrity": "sha512-LI9u/+laYG4Ds1TDKSJW2YPrIlcVYOwi2fUC6xB43lueCjgxV4lffOCZCtYFiH6TNOX+tQKXx97T4IKHbhyHEQ==",
++      "dev": true,
++      "license": "MIT",
++      "dependencies": {
++        "@jridgewell/gen-mapping": "^0.3.5",
++        "@jridgewell/trace-mapping": "^0.3.24"
++      }
++    },
++    "node_modules/@jridgewell/resolve-uri": {
++      "version": "3.1.2",
++      "resolved": "https://registry.npmmirror.com/@jridgewell/resolve-uri/-/resolve-uri-3.1.2.tgz",
++      "integrity": "sha512-bRISgCIjP20/tbWSPWMEi54QVPRZExkuD9lJL+UIxUKtwVJA8wW1Trb1jMs1RFXo1CBTNZ/5hpC9QvmKWdopKw==",
++      "dev": true,
++      "license": "MIT",
++      "engines": {
++        "node": ">=6.0.0"
++      }
++    },
++    "node_modules/@jridgewell/sourcemap-codec": {
++      "version": "1.5.5",
++      "resolved": "https://registry.npmmirror.com/@jridgewell/sourcemap-codec/-/sourcemap-codec-1.5.5.tgz",
++      "integrity": "sha512-cYQ9310grqxueWbl+WuIUIaiUaDcj7WOq5fVhEljNVgRfOUhY9fy2zTvfoqWsnebh8Sl70VScFbICvJnLKB0Og==",
++      "license": "MIT"
++    },
++    "node_modules/@jridgewell/trace-mapping": {
++      "version": "0.3.31",
++      "resolved": "https://registry.npmmirror.com/@jridgewell/trace-mapping/-/trace-mapping-0.3.31.tgz",
++      "integrity": "sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw==",
++      "dev": true,
++      "license": "MIT",
++      "dependencies": {
++        "@jridgewell/resolve-uri": "^3.1.0",
++        "@jridgewell/sourcemap-codec": "^1.4.14"
++      }
++    },
++    "node_modules/@napi-rs/wasm-runtime": {
++      "version": "1.1.2",
++      "resolved": "https://registry.npmmirror.com/@napi-rs/wasm-runtime/-/wasm-runtime-1.1.2.tgz",
++      "integrity": "sha512-sNXv5oLJ7ob93xkZ1XnxisYhGYXfaG9f65/ZgYuAu3qt7b3NadcOEhLvx28hv31PgX8SZJRYrAIPQilQmFpLVw==",
++      "dev": true,
++      "license": "MIT",
++      "optional": true,
++      "dependencies": {
++        "@tybys/wasm-util": "^0.10.1"
++      },
++      "funding": {
++        "type": "github",
++        "url": "https://github.com/sponsors/Brooooooklyn"
++      },
++      "peerDependencies": {
++        "@emnapi/core": "^1.7.1",
++        "@emnapi/runtime": "^1.7.1"
++      }
++    },
++    "node_modules/@oxc-project/types": {
++      "version": "0.122.0",
++      "resolved": "https://registry.npmmirror.com/@oxc-project/types/-/types-0.122.0.tgz",
++      "integrity": "sha512-oLAl5kBpV4w69UtFZ9xqcmTi+GENWOcPF7FCrczTiBbmC0ibXxCwyvZGbO39rCVEuLGAZM84DH0pUIyyv/YJzA==",
++      "dev": true,
++      "license": "MIT",
++      "funding": {
++        "url": "https://github.com/sponsors/Boshen"
++      }
++    },
++    "node_modules/@rolldown/binding-android-arm64": {
++      "version": "1.0.0-rc.12",
++      "resolved": "https://registry.npmmirror.com/@rolldown/binding-android-arm64/-/binding-android-arm64-1.0.0-rc.12.tgz",
++      "integrity": "sha512-pv1y2Fv0JybcykuiiD3qBOBdz6RteYojRFY1d+b95WVuzx211CRh+ytI/+9iVyWQ6koTh5dawe4S/yRfOFjgaA==",
++      "cpu": [
++        "arm64"
++      ],
++      "dev": true,
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "android"
++      ],
++      "engines": {
++        "node": "^20.19.0 || >=22.12.0"
++      }
++    },
++    "node_modules/@rolldown/binding-darwin-arm64": {
++      "version": "1.0.0-rc.12",
++      "resolved": "https://registry.npmmirror.com/@rolldown/binding-darwin-arm64/-/binding-darwin-arm64-1.0.0-rc.12.tgz",
++      "integrity": "sha512-cFYr6zTG/3PXXF3pUO+umXxt1wkRK/0AYT8lDwuqvRC+LuKYWSAQAQZjCWDQpAH172ZV6ieYrNnFzVVcnSflAg==",
++      "cpu": [
++        "arm64"
++      ],
++      "dev": true,
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "darwin"
++      ],
++      "engines": {
++        "node": "^20.19.0 || >=22.12.0"
++      }
++    },
++    "node_modules/@rolldown/binding-darwin-x64": {
++      "version": "1.0.0-rc.12",
++      "resolved": "https://registry.npmmirror.com/@rolldown/binding-darwin-x64/-/binding-darwin-x64-1.0.0-rc.12.tgz",
++      "integrity": "sha512-ZCsYknnHzeXYps0lGBz8JrF37GpE9bFVefrlmDrAQhOEi4IOIlcoU1+FwHEtyXGx2VkYAvhu7dyBf75EJQffBw==",
++      "cpu": [
++        "x64"
++      ],
++      "dev": true,
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "darwin"
++      ],
++      "engines": {
++        "node": "^20.19.0 || >=22.12.0"
++      }
++    },
++    "node_modules/@rolldown/binding-freebsd-x64": {
++      "version": "1.0.0-rc.12",
++      "resolved": "https://registry.npmmirror.com/@rolldown/binding-freebsd-x64/-/binding-freebsd-x64-1.0.0-rc.12.tgz",
++      "integrity": "sha512-dMLeprcVsyJsKolRXyoTH3NL6qtsT0Y2xeuEA8WQJquWFXkEC4bcu1rLZZSnZRMtAqwtrF/Ib9Ddtpa/Gkge9Q==",
++      "cpu": [
++        "x64"
++      ],
++      "dev": true,
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "freebsd"
++      ],
++      "engines": {
++        "node": "^20.19.0 || >=22.12.0"
++      }
++    },
++    "node_modules/@rolldown/binding-linux-arm-gnueabihf": {
++      "version": "1.0.0-rc.12",
++      "resolved": "https://registry.npmmirror.com/@rolldown/binding-linux-arm-gnueabihf/-/binding-linux-arm-gnueabihf-1.0.0-rc.12.tgz",
++      "integrity": "sha512-YqWjAgGC/9M1lz3GR1r1rP79nMgo3mQiiA+Hfo+pvKFK1fAJ1bCi0ZQVh8noOqNacuY1qIcfyVfP6HoyBRZ85Q==",
++      "cpu": [
++        "arm"
++      ],
++      "dev": true,
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "linux"
++      ],
++      "engines": {
++        "node": "^20.19.0 || >=22.12.0"
++      }
++    },
++    "node_modules/@rolldown/binding-linux-arm64-gnu": {
++      "version": "1.0.0-rc.12",
++      "resolved": "https://registry.npmmirror.com/@rolldown/binding-linux-arm64-gnu/-/binding-linux-arm64-gnu-1.0.0-rc.12.tgz",
++      "integrity": "sha512-/I5AS4cIroLpslsmzXfwbe5OmWvSsrFuEw3mwvbQ1kDxJ822hFHIx+vsN/TAzNVyepI/j/GSzrtCIwQPeKCLIg==",
++      "cpu": [
++        "arm64"
++      ],
++      "dev": true,
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "linux"
++      ],
++      "engines": {
++        "node": "^20.19.0 || >=22.12.0"
++      }
++    },
++    "node_modules/@rolldown/binding-linux-arm64-musl": {
++      "version": "1.0.0-rc.12",
++      "resolved": "https://registry.npmmirror.com/@rolldown/binding-linux-arm64-musl/-/binding-linux-arm64-musl-1.0.0-rc.12.tgz",
++      "integrity": "sha512-V6/wZztnBqlx5hJQqNWwFdxIKN0m38p8Jas+VoSfgH54HSj9tKTt1dZvG6JRHcjh6D7TvrJPWFGaY9UBVOaWPw==",
++      "cpu": [
++        "arm64"
++      ],
++      "dev": true,
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "linux"
++      ],
++      "engines": {
++        "node": "^20.19.0 || >=22.12.0"
++      }
++    },
++    "node_modules/@rolldown/binding-linux-ppc64-gnu": {
++      "version": "1.0.0-rc.12",
++      "resolved": "https://registry.npmmirror.com/@rolldown/binding-linux-ppc64-gnu/-/binding-linux-ppc64-gnu-1.0.0-rc.12.tgz",
++      "integrity": "sha512-AP3E9BpcUYliZCxa3w5Kwj9OtEVDYK6sVoUzy4vTOJsjPOgdaJZKFmN4oOlX0Wp0RPV2ETfmIra9x1xuayFB7g==",
++      "cpu": [
++        "ppc64"
++      ],
++      "dev": true,
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "linux"
++      ],
++      "engines": {
++        "node": "^20.19.0 || >=22.12.0"
++      }
++    },
++    "node_modules/@rolldown/binding-linux-s390x-gnu": {
++      "version": "1.0.0-rc.12",
++      "resolved": "https://registry.npmmirror.com/@rolldown/binding-linux-s390x-gnu/-/binding-linux-s390x-gnu-1.0.0-rc.12.tgz",
++      "integrity": "sha512-nWwpvUSPkoFmZo0kQazZYOrT7J5DGOJ/+QHHzjvNlooDZED8oH82Yg67HvehPPLAg5fUff7TfWFHQS8IV1n3og==",
++      "cpu": [
++        "s390x"
++      ],
++      "dev": true,
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "linux"
++      ],
++      "engines": {
++        "node": "^20.19.0 || >=22.12.0"
++      }
++    },
++    "node_modules/@rolldown/binding-linux-x64-gnu": {
++      "version": "1.0.0-rc.12",
++      "resolved": "https://registry.npmmirror.com/@rolldown/binding-linux-x64-gnu/-/binding-linux-x64-gnu-1.0.0-rc.12.tgz",
++      "integrity": "sha512-RNrafz5bcwRy+O9e6P8Z/OCAJW/A+qtBczIqVYwTs14pf4iV1/+eKEjdOUta93q2TsT/FI0XYDP3TCky38LMAg==",
++      "cpu": [
++        "x64"
++      ],
++      "dev": true,
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "linux"
++      ],
++      "engines": {
++        "node": "^20.19.0 || >=22.12.0"
++      }
++    },
++    "node_modules/@rolldown/binding-linux-x64-musl": {
++      "version": "1.0.0-rc.12",
++      "resolved": "https://registry.npmmirror.com/@rolldown/binding-linux-x64-musl/-/binding-linux-x64-musl-1.0.0-rc.12.tgz",
++      "integrity": "sha512-Jpw/0iwoKWx3LJ2rc1yjFrj+T7iHZn2JDg1Yny1ma0luviFS4mhAIcd1LFNxK3EYu3DHWCps0ydXQ5i/rrJ2ig==",
++      "cpu": [
++        "x64"
++      ],
++      "dev": true,
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "linux"
++      ],
++      "engines": {
++        "node": "^20.19.0 || >=22.12.0"
++      }
++    },
++    "node_modules/@rolldown/binding-openharmony-arm64": {
++      "version": "1.0.0-rc.12",
++      "resolved": "https://registry.npmmirror.com/@rolldown/binding-openharmony-arm64/-/binding-openharmony-arm64-1.0.0-rc.12.tgz",
++      "integrity": "sha512-vRugONE4yMfVn0+7lUKdKvN4D5YusEiPilaoO2sgUWpCvrncvWgPMzK00ZFFJuiPgLwgFNP5eSiUlv2tfc+lpA==",
++      "cpu": [
++        "arm64"
++      ],
++      "dev": true,
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "openharmony"
++      ],
++      "engines": {
++        "node": "^20.19.0 || >=22.12.0"
++      }
++    },
++    "node_modules/@rolldown/binding-wasm32-wasi": {
++      "version": "1.0.0-rc.12",
++      "resolved": "https://registry.npmmirror.com/@rolldown/binding-wasm32-wasi/-/binding-wasm32-wasi-1.0.0-rc.12.tgz",
++      "integrity": "sha512-ykGiLr/6kkiHc0XnBfmFJuCjr5ZYKKofkx+chJWDjitX+KsJuAmrzWhwyOMSHzPhzOHOy7u9HlFoa5MoAOJ/Zg==",
++      "cpu": [
++        "wasm32"
++      ],
++      "dev": true,
++      "license": "MIT",
++      "optional": true,
++      "dependencies": {
++        "@napi-rs/wasm-runtime": "^1.1.1"
++      },
++      "engines": {
++        "node": ">=14.0.0"
++      }
++    },
++    "node_modules/@rolldown/binding-win32-arm64-msvc": {
++      "version": "1.0.0-rc.12",
++      "resolved": "https://registry.npmmirror.com/@rolldown/binding-win32-arm64-msvc/-/binding-win32-arm64-msvc-1.0.0-rc.12.tgz",
++      "integrity": "sha512-5eOND4duWkwx1AzCxadcOrNeighiLwMInEADT0YM7xeEOOFcovWZCq8dadXgcRHSf3Ulh1kFo/qvzoFiCLOL1Q==",
++      "cpu": [
++        "arm64"
++      ],
++      "dev": true,
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "win32"
++      ],
++      "engines": {
++        "node": "^20.19.0 || >=22.12.0"
++      }
++    },
++    "node_modules/@rolldown/binding-win32-x64-msvc": {
++      "version": "1.0.0-rc.12",
++      "resolved": "https://registry.npmmirror.com/@rolldown/binding-win32-x64-msvc/-/binding-win32-x64-msvc-1.0.0-rc.12.tgz",
++      "integrity": "sha512-PyqoipaswDLAZtot351MLhrlrh6lcZPo2LSYE+VDxbVk24LVKAGOuE4hb8xZQmrPAuEtTZW8E6D2zc5EUZX4Lw==",
++      "cpu": [
++        "x64"
++      ],
++      "dev": true,
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "win32"
++      ],
++      "engines": {
++        "node": "^20.19.0 || >=22.12.0"
++      }
++    },
++    "node_modules/@rolldown/pluginutils": {
++      "version": "1.0.0-rc.2",
++      "resolved": "https://registry.npmmirror.com/@rolldown/pluginutils/-/pluginutils-1.0.0-rc.2.tgz",
++      "integrity": "sha512-izyXV/v+cHiRfozX62W9htOAvwMo4/bXKDrQ+vom1L1qRuexPock/7VZDAhnpHCLNejd3NJ6hiab+tO0D44Rgw==",
++      "dev": true,
++      "license": "MIT"
++    },
++    "node_modules/@tailwindcss/node": {
++      "version": "4.2.2",
++      "resolved": "https://registry.npmmirror.com/@tailwindcss/node/-/node-4.2.2.tgz",
++      "integrity": "sha512-pXS+wJ2gZpVXqFaUEjojq7jzMpTGf8rU6ipJz5ovJV6PUGmlJ+jvIwGrzdHdQ80Sg+wmQxUFuoW1UAAwHNEdFA==",
++      "dev": true,
++      "license": "MIT",
++      "dependencies": {
++        "@jridgewell/remapping": "^2.3.5",
++        "enhanced-resolve": "^5.19.0",
++        "jiti": "^2.6.1",
++        "lightningcss": "1.32.0",
++        "magic-string": "^0.30.21",
++        "source-map-js": "^1.2.1",
++        "tailwindcss": "4.2.2"
++      }
++    },
++    "node_modules/@tailwindcss/oxide": {
++      "version": "4.2.2",
++      "resolved": "https://registry.npmmirror.com/@tailwindcss/oxide/-/oxide-4.2.2.tgz",
++      "integrity": "sha512-qEUA07+E5kehxYp9BVMpq9E8vnJuBHfJEC0vPC5e7iL/hw7HR61aDKoVoKzrG+QKp56vhNZe4qwkRmMC0zDLvg==",
++      "dev": true,
++      "license": "MIT",
++      "engines": {
++        "node": ">= 20"
++      },
++      "optionalDependencies": {
++        "@tailwindcss/oxide-android-arm64": "4.2.2",
++        "@tailwindcss/oxide-darwin-arm64": "4.2.2",
++        "@tailwindcss/oxide-darwin-x64": "4.2.2",
++        "@tailwindcss/oxide-freebsd-x64": "4.2.2",
++        "@tailwindcss/oxide-linux-arm-gnueabihf": "4.2.2",
++        "@tailwindcss/oxide-linux-arm64-gnu": "4.2.2",
++        "@tailwindcss/oxide-linux-arm64-musl": "4.2.2",
++        "@tailwindcss/oxide-linux-x64-gnu": "4.2.2",
++        "@tailwindcss/oxide-linux-x64-musl": "4.2.2",
++        "@tailwindcss/oxide-wasm32-wasi": "4.2.2",
++        "@tailwindcss/oxide-win32-arm64-msvc": "4.2.2",
++        "@tailwindcss/oxide-win32-x64-msvc": "4.2.2"
++      }
++    },
++    "node_modules/@tailwindcss/oxide-android-arm64": {
++      "version": "4.2.2",
++      "resolved": "https://registry.npmmirror.com/@tailwindcss/oxide-android-arm64/-/oxide-android-arm64-4.2.2.tgz",
++      "integrity": "sha512-dXGR1n+P3B6748jZO/SvHZq7qBOqqzQ+yFrXpoOWWALWndF9MoSKAT3Q0fYgAzYzGhxNYOoysRvYlpixRBBoDg==",
++      "cpu": [
++        "arm64"
++      ],
++      "dev": true,
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "android"
++      ],
++      "engines": {
++        "node": ">= 20"
++      }
++    },
++    "node_modules/@tailwindcss/oxide-darwin-arm64": {
++      "version": "4.2.2",
++      "resolved": "https://registry.npmmirror.com/@tailwindcss/oxide-darwin-arm64/-/oxide-darwin-arm64-4.2.2.tgz",
++      "integrity": "sha512-iq9Qjr6knfMpZHj55/37ouZeykwbDqF21gPFtfnhCCKGDcPI/21FKC9XdMO/XyBM7qKORx6UIhGgg6jLl7BZlg==",
++      "cpu": [
++        "arm64"
++      ],
++      "dev": true,
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "darwin"
++      ],
++      "engines": {
++        "node": ">= 20"
++      }
++    },
++    "node_modules/@tailwindcss/oxide-darwin-x64": {
++      "version": "4.2.2",
++      "resolved": "https://registry.npmmirror.com/@tailwindcss/oxide-darwin-x64/-/oxide-darwin-x64-4.2.2.tgz",
++      "integrity": "sha512-BlR+2c3nzc8f2G639LpL89YY4bdcIdUmiOOkv2GQv4/4M0vJlpXEa0JXNHhCHU7VWOKWT/CjqHdTP8aUuDJkuw==",
++      "cpu": [
++        "x64"
++      ],
++      "dev": true,
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "darwin"
++      ],
++      "engines": {
++        "node": ">= 20"
++      }
++    },
++    "node_modules/@tailwindcss/oxide-freebsd-x64": {
++      "version": "4.2.2",
++      "resolved": "https://registry.npmmirror.com/@tailwindcss/oxide-freebsd-x64/-/oxide-freebsd-x64-4.2.2.tgz",
++      "integrity": "sha512-YUqUgrGMSu2CDO82hzlQ5qSb5xmx3RUrke/QgnoEx7KvmRJHQuZHZmZTLSuuHwFf0DJPybFMXMYf+WJdxHy/nQ==",
++      "cpu": [
++        "x64"
++      ],
++      "dev": true,
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "freebsd"
++      ],
++      "engines": {
++        "node": ">= 20"
++      }
++    },
++    "node_modules/@tailwindcss/oxide-linux-arm-gnueabihf": {
++      "version": "4.2.2",
++      "resolved": "https://registry.npmmirror.com/@tailwindcss/oxide-linux-arm-gnueabihf/-/oxide-linux-arm-gnueabihf-4.2.2.tgz",
++      "integrity": "sha512-FPdhvsW6g06T9BWT0qTwiVZYE2WIFo2dY5aCSpjG/S/u1tby+wXoslXS0kl3/KXnULlLr1E3NPRRw0g7t2kgaQ==",
++      "cpu": [
++        "arm"
++      ],
++      "dev": true,
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "linux"
++      ],
++      "engines": {
++        "node": ">= 20"
++      }
++    },
++    "node_modules/@tailwindcss/oxide-linux-arm64-gnu": {
++      "version": "4.2.2",
++      "resolved": "https://registry.npmmirror.com/@tailwindcss/oxide-linux-arm64-gnu/-/oxide-linux-arm64-gnu-4.2.2.tgz",
++      "integrity": "sha512-4og1V+ftEPXGttOO7eCmW7VICmzzJWgMx+QXAJRAhjrSjumCwWqMfkDrNu1LXEQzNAwz28NCUpucgQPrR4S2yw==",
++      "cpu": [
++        "arm64"
++      ],
++      "dev": true,
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "linux"
++      ],
++      "engines": {
++        "node": ">= 20"
++      }
++    },
++    "node_modules/@tailwindcss/oxide-linux-arm64-musl": {
++      "version": "4.2.2",
++      "resolved": "https://registry.npmmirror.com/@tailwindcss/oxide-linux-arm64-musl/-/oxide-linux-arm64-musl-4.2.2.tgz",
++      "integrity": "sha512-oCfG/mS+/+XRlwNjnsNLVwnMWYH7tn/kYPsNPh+JSOMlnt93mYNCKHYzylRhI51X+TbR+ufNhhKKzm6QkqX8ag==",
++      "cpu": [
++        "arm64"
++      ],
++      "dev": true,
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "linux"
++      ],
++      "engines": {
++        "node": ">= 20"
++      }
++    },
++    "node_modules/@tailwindcss/oxide-linux-x64-gnu": {
++      "version": "4.2.2",
++      "resolved": "https://registry.npmmirror.com/@tailwindcss/oxide-linux-x64-gnu/-/oxide-linux-x64-gnu-4.2.2.tgz",
++      "integrity": "sha512-rTAGAkDgqbXHNp/xW0iugLVmX62wOp2PoE39BTCGKjv3Iocf6AFbRP/wZT/kuCxC9QBh9Pu8XPkv/zCZB2mcMg==",
++      "cpu": [
++        "x64"
++      ],
++      "dev": true,
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "linux"
++      ],
++      "engines": {
++        "node": ">= 20"
++      }
++    },
++    "node_modules/@tailwindcss/oxide-linux-x64-musl": {
++      "version": "4.2.2",
++      "resolved": "https://registry.npmmirror.com/@tailwindcss/oxide-linux-x64-musl/-/oxide-linux-x64-musl-4.2.2.tgz",
++      "integrity": "sha512-XW3t3qwbIwiSyRCggeO2zxe3KWaEbM0/kW9e8+0XpBgyKU4ATYzcVSMKteZJ1iukJ3HgHBjbg9P5YPRCVUxlnQ==",
++      "cpu": [
++        "x64"
++      ],
++      "dev": true,
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "linux"
++      ],
++      "engines": {
++        "node": ">= 20"
++      }
++    },
++    "node_modules/@tailwindcss/oxide-wasm32-wasi": {
++      "version": "4.2.2",
++      "resolved": "https://registry.npmmirror.com/@tailwindcss/oxide-wasm32-wasi/-/oxide-wasm32-wasi-4.2.2.tgz",
++      "integrity": "sha512-eKSztKsmEsn1O5lJ4ZAfyn41NfG7vzCg496YiGtMDV86jz1q/irhms5O0VrY6ZwTUkFy/EKG3RfWgxSI3VbZ8Q==",
++      "bundleDependencies": [
++        "@napi-rs/wasm-runtime",
++        "@emnapi/core",
++        "@emnapi/runtime",
++        "@tybys/wasm-util",
++        "@emnapi/wasi-threads",
++        "tslib"
++      ],
++      "cpu": [
++        "wasm32"
++      ],
++      "dev": true,
++      "license": "MIT",
++      "optional": true,
++      "dependencies": {
++        "@emnapi/core": "^1.8.1",
++        "@emnapi/runtime": "^1.8.1",
++        "@emnapi/wasi-threads": "^1.1.0",
++        "@napi-rs/wasm-runtime": "^1.1.1",
++        "@tybys/wasm-util": "^0.10.1",
++        "tslib": "^2.8.1"
++      },
++      "engines": {
++        "node": ">=14.0.0"
++      }
++    },
++    "node_modules/@tailwindcss/oxide-win32-arm64-msvc": {
++      "version": "4.2.2",
++      "resolved": "https://registry.npmmirror.com/@tailwindcss/oxide-win32-arm64-msvc/-/oxide-win32-arm64-msvc-4.2.2.tgz",
++      "integrity": "sha512-qPmaQM4iKu5mxpsrWZMOZRgZv1tOZpUm+zdhhQP0VhJfyGGO3aUKdbh3gDZc/dPLQwW4eSqWGrrcWNBZWUWaXQ==",
++      "cpu": [
++        "arm64"
++      ],
++      "dev": true,
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "win32"
++      ],
++      "engines": {
++        "node": ">= 20"
++      }
++    },
++    "node_modules/@tailwindcss/oxide-win32-x64-msvc": {
++      "version": "4.2.2",
++      "resolved": "https://registry.npmmirror.com/@tailwindcss/oxide-win32-x64-msvc/-/oxide-win32-x64-msvc-4.2.2.tgz",
++      "integrity": "sha512-1T/37VvI7WyH66b+vqHj/cLwnCxt7Qt3WFu5Q8hk65aOvlwAhs7rAp1VkulBJw/N4tMirXjVnylTR72uI0HGcA==",
++      "cpu": [
++        "x64"
++      ],
++      "dev": true,
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "win32"
++      ],
++      "engines": {
++        "node": ">= 20"
++      }
++    },
++    "node_modules/@tailwindcss/vite": {
++      "version": "4.2.2",
++      "resolved": "https://registry.npmmirror.com/@tailwindcss/vite/-/vite-4.2.2.tgz",
++      "integrity": "sha512-mEiF5HO1QqCLXoNEfXVA1Tzo+cYsrqV7w9Juj2wdUFyW07JRenqMG225MvPwr3ZD9N1bFQj46X7r33iHxLUW0w==",
++      "dev": true,
++      "license": "MIT",
++      "dependencies": {
++        "@tailwindcss/node": "4.2.2",
++        "@tailwindcss/oxide": "4.2.2",
++        "tailwindcss": "4.2.2"
++      },
++      "peerDependencies": {
++        "vite": "^5.2.0 || ^6 || ^7 || ^8"
++      }
++    },
++    "node_modules/@tybys/wasm-util": {
++      "version": "0.10.1",
++      "resolved": "https://registry.npmmirror.com/@tybys/wasm-util/-/wasm-util-0.10.1.tgz",
++      "integrity": "sha512-9tTaPJLSiejZKx+Bmog4uSubteqTvFrVrURwkmHixBo0G4seD0zUxp98E1DzUBJxLQ3NPwXrGKDiVjwx/DpPsg==",
++      "dev": true,
++      "license": "MIT",
++      "optional": true,
++      "dependencies": {
++        "tslib": "^2.4.0"
++      }
++    },
++    "node_modules/@types/node": {
++      "version": "24.12.0",
++      "resolved": "https://registry.npmmirror.com/@types/node/-/node-24.12.0.tgz",
++      "integrity": "sha512-GYDxsZi3ChgmckRT9HPU0WEhKLP08ev/Yfcq2AstjrDASOYCSXeyjDsHg4v5t4jOj7cyDX3vmprafKlWIG9MXQ==",
++      "dev": true,
++      "license": "MIT",
++      "dependencies": {
++        "undici-types": "~7.16.0"
++      }
++    },
++    "node_modules/@vitejs/plugin-vue": {
++      "version": "6.0.5",
++      "resolved": "https://registry.npmmirror.com/@vitejs/plugin-vue/-/plugin-vue-6.0.5.tgz",
++      "integrity": "sha512-bL3AxKuQySfk1iGcBsQnoRVexTPJq0Z/ixFVM8OhVJAP6ZXXXLtM7NFKWhLl30Kg7uTBqIaPXbh+nuQCuBDedg==",
++      "dev": true,
++      "license": "MIT",
++      "dependencies": {
++        "@rolldown/pluginutils": "1.0.0-rc.2"
++      },
++      "engines": {
++        "node": "^20.19.0 || >=22.12.0"
++      },
++      "peerDependencies": {
++        "vite": "^5.0.0 || ^6.0.0 || ^7.0.0 || ^8.0.0",
++        "vue": "^3.2.25"
++      }
++    },
++    "node_modules/@volar/language-core": {
++      "version": "2.4.28",
++      "resolved": "https://registry.npmmirror.com/@volar/language-core/-/language-core-2.4.28.tgz",
++      "integrity": "sha512-w4qhIJ8ZSitgLAkVay6AbcnC7gP3glYM3fYwKV3srj8m494E3xtrCv6E+bWviiK/8hs6e6t1ij1s2Endql7vzQ==",
++      "dev": true,
++      "license": "MIT",
++      "dependencies": {
++        "@volar/source-map": "2.4.28"
++      }
++    },
++    "node_modules/@volar/source-map": {
++      "version": "2.4.28",
++      "resolved": "https://registry.npmmirror.com/@volar/source-map/-/source-map-2.4.28.tgz",
++      "integrity": "sha512-yX2BDBqJkRXfKw8my8VarTyjv48QwxdJtvRgUpNE5erCsgEUdI2DsLbpa+rOQVAJYshY99szEcRDmyHbF10ggQ==",
++      "dev": true,
++      "license": "MIT"
++    },
++    "node_modules/@volar/typescript": {
++      "version": "2.4.28",
++      "resolved": "https://registry.npmmirror.com/@volar/typescript/-/typescript-2.4.28.tgz",
++      "integrity": "sha512-Ja6yvWrbis2QtN4ClAKreeUZPVYMARDYZl9LMEv1iQ1QdepB6wn0jTRxA9MftYmYa4DQ4k/DaSZpFPUfxl8giw==",
++      "dev": true,
++      "license": "MIT",
++      "dependencies": {
++        "@volar/language-core": "2.4.28",
++        "path-browserify": "^1.0.1",
++        "vscode-uri": "^3.0.8"
++      }
++    },
++    "node_modules/@vue/compiler-core": {
++      "version": "3.5.31",
++      "resolved": "https://registry.npmmirror.com/@vue/compiler-core/-/compiler-core-3.5.31.tgz",
++      "integrity": "sha512-k/ueL14aNIEy5Onf0OVzR8kiqF/WThgLdFhxwa4e/KF/0qe38IwIdofoSWBTvvxQOesaz6riAFAUaYjoF9fLLQ==",
++      "license": "MIT",
++      "dependencies": {
++        "@babel/parser": "^7.29.2",
++        "@vue/shared": "3.5.31",
++        "entities": "^7.0.1",
++        "estree-walker": "^2.0.2",
++        "source-map-js": "^1.2.1"
++      }
++    },
++    "node_modules/@vue/compiler-dom": {
++      "version": "3.5.31",
++      "resolved": "https://registry.npmmirror.com/@vue/compiler-dom/-/compiler-dom-3.5.31.tgz",
++      "integrity": "sha512-BMY/ozS/xxjYqRFL+tKdRpATJYDTTgWSo0+AJvJNg4ig+Hgb0dOsHPXvloHQ5hmlivUqw1Yt2pPIqp4e0v1GUw==",
++      "license": "MIT",
++      "dependencies": {
++        "@vue/compiler-core": "3.5.31",
++        "@vue/shared": "3.5.31"
++      }
++    },
++    "node_modules/@vue/compiler-sfc": {
++      "version": "3.5.31",
++      "resolved": "https://registry.npmmirror.com/@vue/compiler-sfc/-/compiler-sfc-3.5.31.tgz",
++      "integrity": "sha512-M8wpPgR9UJ8MiRGjppvx9uWJfLV7A/T+/rL8s/y3QG3u0c2/YZgff3d6SuimKRIhcYnWg5fTfDMlz2E6seUW8Q==",
++      "license": "MIT",
++      "dependencies": {
++        "@babel/parser": "^7.29.2",
++        "@vue/compiler-core": "3.5.31",
++        "@vue/compiler-dom": "3.5.31",
++        "@vue/compiler-ssr": "3.5.31",
++        "@vue/shared": "3.5.31",
++        "estree-walker": "^2.0.2",
++        "magic-string": "^0.30.21",
++        "postcss": "^8.5.8",
++        "source-map-js": "^1.2.1"
++      }
++    },
++    "node_modules/@vue/compiler-ssr": {
++      "version": "3.5.31",
++      "resolved": "https://registry.npmmirror.com/@vue/compiler-ssr/-/compiler-ssr-3.5.31.tgz",
++      "integrity": "sha512-h0xIMxrt/LHOvJKMri+vdYT92BrK3HFLtDqq9Pr/lVVfE4IyKZKvWf0vJFW10Yr6nX02OR4MkJwI0c1HDa1hog==",
++      "license": "MIT",
++      "dependencies": {
++        "@vue/compiler-dom": "3.5.31",
++        "@vue/shared": "3.5.31"
++      }
++    },
++    "node_modules/@vue/language-core": {
++      "version": "3.2.6",
++      "resolved": "https://registry.npmmirror.com/@vue/language-core/-/language-core-3.2.6.tgz",
++      "integrity": "sha512-xYYYX3/aVup576tP/23sEUpgiEnujrENaoNRbaozC1/MA9I6EGFQRJb4xrt/MmUCAGlxTKL2RmT8JLTPqagCkg==",
++      "dev": true,
++      "license": "MIT",
++      "dependencies": {
++        "@volar/language-core": "2.4.28",
++        "@vue/compiler-dom": "^3.5.0",
++        "@vue/shared": "^3.5.0",
++        "alien-signals": "^3.0.0",
++        "muggle-string": "^0.4.1",
++        "path-browserify": "^1.0.1",
++        "picomatch": "^4.0.2"
++      }
++    },
++    "node_modules/@vue/reactivity": {
++      "version": "3.5.31",
++      "resolved": "https://registry.npmmirror.com/@vue/reactivity/-/reactivity-3.5.31.tgz",
++      "integrity": "sha512-DtKXxk9E/KuVvt8VxWu+6Luc9I9ETNcqR1T1oW1gf02nXaZ1kuAx58oVu7uX9XxJR0iJCro6fqBLw9oSBELo5g==",
++      "license": "MIT",
++      "dependencies": {
++        "@vue/shared": "3.5.31"
++      }
++    },
++    "node_modules/@vue/runtime-core": {
++      "version": "3.5.31",
++      "resolved": "https://registry.npmmirror.com/@vue/runtime-core/-/runtime-core-3.5.31.tgz",
++      "integrity": "sha512-AZPmIHXEAyhpkmN7aWlqjSfYynmkWlluDNPHMCZKFHH+lLtxP/30UJmoVhXmbDoP1Ng0jG0fyY2zCj1PnSSA6Q==",
++      "license": "MIT",
++      "dependencies": {
++        "@vue/reactivity": "3.5.31",
++        "@vue/shared": "3.5.31"
++      }
++    },
++    "node_modules/@vue/runtime-dom": {
++      "version": "3.5.31",
++      "resolved": "https://registry.npmmirror.com/@vue/runtime-dom/-/runtime-dom-3.5.31.tgz",
++      "integrity": "sha512-xQJsNRmGPeDCJq/u813tyonNgWBFjzfVkBwDREdEWndBnGdHLHgkwNBQxLtg4zDrzKTEcnikUy1UUNecb3lJ6g==",
++      "license": "MIT",
++      "dependencies": {
++        "@vue/reactivity": "3.5.31",
++        "@vue/runtime-core": "3.5.31",
++        "@vue/shared": "3.5.31",
++        "csstype": "^3.2.3"
++      }
++    },
++    "node_modules/@vue/server-renderer": {
++      "version": "3.5.31",
++      "resolved": "https://registry.npmmirror.com/@vue/server-renderer/-/server-renderer-3.5.31.tgz",
++      "integrity": "sha512-GJuwRvMcdZX/CriUnyIIOGkx3rMV3H6sOu0JhdKbduaeCji6zb60iOGMY7tFoN24NfsUYoFBhshZtGxGpxO4iA==",
++      "license": "MIT",
++      "dependencies": {
++        "@vue/compiler-ssr": "3.5.31",
++        "@vue/shared": "3.5.31"
++      },
++      "peerDependencies": {
++        "vue": "3.5.31"
++      }
++    },
++    "node_modules/@vue/shared": {
++      "version": "3.5.31",
++      "resolved": "https://registry.npmmirror.com/@vue/shared/-/shared-3.5.31.tgz",
++      "integrity": "sha512-nBxuiuS9Lj5bPkPbWogPUnjxxWpkRniX7e5UBQDWl6Fsf4roq9wwV+cR7ezQ4zXswNvPIlsdj1slcLB7XCsRAw==",
++      "license": "MIT"
++    },
++    "node_modules/@vue/tsconfig": {
++      "version": "0.9.1",
++      "resolved": "https://registry.npmmirror.com/@vue/tsconfig/-/tsconfig-0.9.1.tgz",
++      "integrity": "sha512-buvjm+9NzLCJL29KY1j1991YYJ5e6275OiK+G4jtmfIb+z4POywbdm0wXusT9adVWqe0xqg70TbI7+mRx4uU9w==",
++      "dev": true,
++      "license": "MIT",
++      "peerDependencies": {
++        "typescript": ">= 5.8",
++        "vue": "^3.4.0"
++      },
++      "peerDependenciesMeta": {
++        "typescript": {
++          "optional": true
++        },
++        "vue": {
++          "optional": true
++        }
++      }
++    },
++    "node_modules/alien-signals": {
++      "version": "3.1.2",
++      "resolved": "https://registry.npmmirror.com/alien-signals/-/alien-signals-3.1.2.tgz",
++      "integrity": "sha512-d9dYqZTS90WLiU0I5c6DHj/HcKkF8ZyGN3G5x8wSbslulz70KOxaqCT0hQCo9KOyhVqzqGojvNdJXoTumZOtcw==",
++      "dev": true,
++      "license": "MIT"
++    },
++    "node_modules/csstype": {
++      "version": "3.2.3",
++      "resolved": "https://registry.npmmirror.com/csstype/-/csstype-3.2.3.tgz",
++      "integrity": "sha512-z1HGKcYy2xA8AGQfwrn0PAy+PB7X/GSj3UVJW9qKyn43xWa+gl5nXmU4qqLMRzWVLFC8KusUX8T/0kCiOYpAIQ==",
++      "license": "MIT"
++    },
++    "node_modules/detect-libc": {
++      "version": "2.1.2",
++      "resolved": "https://registry.npmmirror.com/detect-libc/-/detect-libc-2.1.2.tgz",
++      "integrity": "sha512-Btj2BOOO83o3WyH59e8MgXsxEQVcarkUOpEYrubB0urwnN10yQ364rsiByU11nZlqWYZm05i/of7io4mzihBtQ==",
++      "dev": true,
++      "license": "Apache-2.0",
++      "engines": {
++        "node": ">=8"
++      }
++    },
++    "node_modules/enhanced-resolve": {
++      "version": "5.20.1",
++      "resolved": "https://registry.npmmirror.com/enhanced-resolve/-/enhanced-resolve-5.20.1.tgz",
++      "integrity": "sha512-Qohcme7V1inbAfvjItgw0EaxVX5q2rdVEZHRBrEQdRZTssLDGsL8Lwrznl8oQ/6kuTJONLaDcGjkNP247XEhcA==",
++      "dev": true,
++      "license": "MIT",
++      "dependencies": {
++        "graceful-fs": "^4.2.4",
++        "tapable": "^2.3.0"
++      },
++      "engines": {
++        "node": ">=10.13.0"
++      }
++    },
++    "node_modules/entities": {
++      "version": "7.0.1",
++      "resolved": "https://registry.npmmirror.com/entities/-/entities-7.0.1.tgz",
++      "integrity": "sha512-TWrgLOFUQTH994YUyl1yT4uyavY5nNB5muff+RtWaqNVCAK408b5ZnnbNAUEWLTCpum9w6arT70i1XdQ4UeOPA==",
++      "license": "BSD-2-Clause",
++      "engines": {
++        "node": ">=0.12"
++      },
++      "funding": {
++        "url": "https://github.com/fb55/entities?sponsor=1"
++      }
++    },
++    "node_modules/estree-walker": {
++      "version": "2.0.2",
++      "resolved": "https://registry.npmmirror.com/estree-walker/-/estree-walker-2.0.2.tgz",
++      "integrity": "sha512-Rfkk/Mp/DL7JVje3u18FxFujQlTNR2q6QfMSMB7AvCBx91NGj/ba3kCfza0f6dVDbw7YlRf/nDrn7pQrCCyQ/w==",
++      "license": "MIT"
++    },
++    "node_modules/fdir": {
++      "version": "6.5.0",
++      "resolved": "https://registry.npmmirror.com/fdir/-/fdir-6.5.0.tgz",
++      "integrity": "sha512-tIbYtZbucOs0BRGqPJkshJUYdL+SDH7dVM8gjy+ERp3WAUjLEFJE+02kanyHtwjWOnwrKYBiwAmM0p4kLJAnXg==",
++      "dev": true,
++      "license": "MIT",
++      "engines": {
++        "node": ">=12.0.0"
++      },
++      "peerDependencies": {
++        "picomatch": "^3 || ^4"
++      },
++      "peerDependenciesMeta": {
++        "picomatch": {
++          "optional": true
++        }
++      }
++    },
++    "node_modules/fsevents": {
++      "version": "2.3.3",
++      "resolved": "https://registry.npmmirror.com/fsevents/-/fsevents-2.3.3.tgz",
++      "integrity": "sha512-5xoDfX+fL7faATnagmWPpbFtwh/R77WmMMqqHGS65C3vvB0YHrgF+B1YmZ3441tMj5n63k0212XNoJwzlhffQw==",
++      "dev": true,
++      "hasInstallScript": true,
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "darwin"
++      ],
++      "engines": {
++        "node": "^8.16.0 || ^10.6.0 || >=11.0.0"
++      }
++    },
++    "node_modules/graceful-fs": {
++      "version": "4.2.11",
++      "resolved": "https://registry.npmmirror.com/graceful-fs/-/graceful-fs-4.2.11.tgz",
++      "integrity": "sha512-RbJ5/jmFcNNCcDV5o9eTnBLJ/HszWV0P73bc+Ff4nS/rJj+YaS6IGyiOL0VoBYX+l1Wrl3k63h/KrH+nhJ0XvQ==",
++      "dev": true,
++      "license": "ISC"
++    },
++    "node_modules/jiti": {
++      "version": "2.6.1",
++      "resolved": "https://registry.npmmirror.com/jiti/-/jiti-2.6.1.tgz",
++      "integrity": "sha512-ekilCSN1jwRvIbgeg/57YFh8qQDNbwDb9xT/qu2DAHbFFZUicIl4ygVaAvzveMhMVr3LnpSKTNnwt8PoOfmKhQ==",
++      "dev": true,
++      "license": "MIT",
++      "bin": {
++        "jiti": "lib/jiti-cli.mjs"
++      }
++    },
++    "node_modules/lightningcss": {
++      "version": "1.32.0",
++      "resolved": "https://registry.npmmirror.com/lightningcss/-/lightningcss-1.32.0.tgz",
++      "integrity": "sha512-NXYBzinNrblfraPGyrbPoD19C1h9lfI/1mzgWYvXUTe414Gz/X1FD2XBZSZM7rRTrMA8JL3OtAaGifrIKhQ5yQ==",
++      "dev": true,
++      "license": "MPL-2.0",
++      "dependencies": {
++        "detect-libc": "^2.0.3"
++      },
++      "engines": {
++        "node": ">= 12.0.0"
++      },
++      "funding": {
++        "type": "opencollective",
++        "url": "https://opencollective.com/parcel"
++      },
++      "optionalDependencies": {
++        "lightningcss-android-arm64": "1.32.0",
++        "lightningcss-darwin-arm64": "1.32.0",
++        "lightningcss-darwin-x64": "1.32.0",
++        "lightningcss-freebsd-x64": "1.32.0",
++        "lightningcss-linux-arm-gnueabihf": "1.32.0",
++        "lightningcss-linux-arm64-gnu": "1.32.0",
++        "lightningcss-linux-arm64-musl": "1.32.0",
++        "lightningcss-linux-x64-gnu": "1.32.0",
++        "lightningcss-linux-x64-musl": "1.32.0",
++        "lightningcss-win32-arm64-msvc": "1.32.0",
++        "lightningcss-win32-x64-msvc": "1.32.0"
++      }
++    },
++    "node_modules/lightningcss-android-arm64": {
++      "version": "1.32.0",
++      "resolved": "https://registry.npmmirror.com/lightningcss-android-arm64/-/lightningcss-android-arm64-1.32.0.tgz",
++      "integrity": "sha512-YK7/ClTt4kAK0vo6w3X+Pnm0D2cf2vPHbhOXdoNti1Ga0al1P4TBZhwjATvjNwLEBCnKvjJc2jQgHXH0NEwlAg==",
++      "cpu": [
++        "arm64"
++      ],
++      "dev": true,
++      "license": "MPL-2.0",
++      "optional": true,
++      "os": [
++        "android"
++      ],
++      "engines": {
++        "node": ">= 12.0.0"
++      },
++      "funding": {
++        "type": "opencollective",
++        "url": "https://opencollective.com/parcel"
++      }
++    },
++    "node_modules/lightningcss-darwin-arm64": {
++      "version": "1.32.0",
++      "resolved": "https://registry.npmmirror.com/lightningcss-darwin-arm64/-/lightningcss-darwin-arm64-1.32.0.tgz",
++      "integrity": "sha512-RzeG9Ju5bag2Bv1/lwlVJvBE3q6TtXskdZLLCyfg5pt+HLz9BqlICO7LZM7VHNTTn/5PRhHFBSjk5lc4cmscPQ==",
++      "cpu": [
++        "arm64"
++      ],
++      "dev": true,
++      "license": "MPL-2.0",
++      "optional": true,
++      "os": [
++        "darwin"
++      ],
++      "engines": {
++        "node": ">= 12.0.0"
++      },
++      "funding": {
++        "type": "opencollective",
++        "url": "https://opencollective.com/parcel"
++      }
++    },
++    "node_modules/lightningcss-darwin-x64": {
++      "version": "1.32.0",
++      "resolved": "https://registry.npmmirror.com/lightningcss-darwin-x64/-/lightningcss-darwin-x64-1.32.0.tgz",
++      "integrity": "sha512-U+QsBp2m/s2wqpUYT/6wnlagdZbtZdndSmut/NJqlCcMLTWp5muCrID+K5UJ6jqD2BFshejCYXniPDbNh73V8w==",
++      "cpu": [
++        "x64"
++      ],
++      "dev": true,
++      "license": "MPL-2.0",
++      "optional": true,
++      "os": [
++        "darwin"
++      ],
++      "engines": {
++        "node": ">= 12.0.0"
++      },
++      "funding": {
++        "type": "opencollective",
++        "url": "https://opencollective.com/parcel"
++      }
++    },
++    "node_modules/lightningcss-freebsd-x64": {
++      "version": "1.32.0",
++      "resolved": "https://registry.npmmirror.com/lightningcss-freebsd-x64/-/lightningcss-freebsd-x64-1.32.0.tgz",
++      "integrity": "sha512-JCTigedEksZk3tHTTthnMdVfGf61Fky8Ji2E4YjUTEQX14xiy/lTzXnu1vwiZe3bYe0q+SpsSH/CTeDXK6WHig==",
++      "cpu": [
++        "x64"
++      ],
++      "dev": true,
++      "license": "MPL-2.0",
++      "optional": true,
++      "os": [
++        "freebsd"
++      ],
++      "engines": {
++        "node": ">= 12.0.0"
++      },
++      "funding": {
++        "type": "opencollective",
++        "url": "https://opencollective.com/parcel"
++      }
++    },
++    "node_modules/lightningcss-linux-arm-gnueabihf": {
++      "version": "1.32.0",
++      "resolved": "https://registry.npmmirror.com/lightningcss-linux-arm-gnueabihf/-/lightningcss-linux-arm-gnueabihf-1.32.0.tgz",
++      "integrity": "sha512-x6rnnpRa2GL0zQOkt6rts3YDPzduLpWvwAF6EMhXFVZXD4tPrBkEFqzGowzCsIWsPjqSK+tyNEODUBXeeVHSkw==",
++      "cpu": [
++        "arm"
++      ],
++      "dev": true,
++      "license": "MPL-2.0",
++      "optional": true,
++      "os": [
++        "linux"
++      ],
++      "engines": {
++        "node": ">= 12.0.0"
++      },
++      "funding": {
++        "type": "opencollective",
++        "url": "https://opencollective.com/parcel"
++      }
++    },
++    "node_modules/lightningcss-linux-arm64-gnu": {
++      "version": "1.32.0",
++      "resolved": "https://registry.npmmirror.com/lightningcss-linux-arm64-gnu/-/lightningcss-linux-arm64-gnu-1.32.0.tgz",
++      "integrity": "sha512-0nnMyoyOLRJXfbMOilaSRcLH3Jw5z9HDNGfT/gwCPgaDjnx0i8w7vBzFLFR1f6CMLKF8gVbebmkUN3fa/kQJpQ==",
++      "cpu": [
++        "arm64"
++      ],
++      "dev": true,
++      "license": "MPL-2.0",
++      "optional": true,
++      "os": [
++        "linux"
++      ],
++      "engines": {
++        "node": ">= 12.0.0"
++      },
++      "funding": {
++        "type": "opencollective",
++        "url": "https://opencollective.com/parcel"
++      }
++    },
++    "node_modules/lightningcss-linux-arm64-musl": {
++      "version": "1.32.0",
++      "resolved": "https://registry.npmmirror.com/lightningcss-linux-arm64-musl/-/lightningcss-linux-arm64-musl-1.32.0.tgz",
++      "integrity": "sha512-UpQkoenr4UJEzgVIYpI80lDFvRmPVg6oqboNHfoH4CQIfNA+HOrZ7Mo7KZP02dC6LjghPQJeBsvXhJod/wnIBg==",
++      "cpu": [
++        "arm64"
++      ],
++      "dev": true,
++      "license": "MPL-2.0",
++      "optional": true,
++      "os": [
++        "linux"
++      ],
++      "engines": {
++        "node": ">= 12.0.0"
++      },
++      "funding": {
++        "type": "opencollective",
++        "url": "https://opencollective.com/parcel"
++      }
++    },
++    "node_modules/lightningcss-linux-x64-gnu": {
++      "version": "1.32.0",
++      "resolved": "https://registry.npmmirror.com/lightningcss-linux-x64-gnu/-/lightningcss-linux-x64-gnu-1.32.0.tgz",
++      "integrity": "sha512-V7Qr52IhZmdKPVr+Vtw8o+WLsQJYCTd8loIfpDaMRWGUZfBOYEJeyJIkqGIDMZPwPx24pUMfwSxxI8phr/MbOA==",
++      "cpu": [
++        "x64"
++      ],
++      "dev": true,
++      "license": "MPL-2.0",
++      "optional": true,
++      "os": [
++        "linux"
++      ],
++      "engines": {
++        "node": ">= 12.0.0"
++      },
++      "funding": {
++        "type": "opencollective",
++        "url": "https://opencollective.com/parcel"
++      }
++    },
++    "node_modules/lightningcss-linux-x64-musl": {
++      "version": "1.32.0",
++      "resolved": "https://registry.npmmirror.com/lightningcss-linux-x64-musl/-/lightningcss-linux-x64-musl-1.32.0.tgz",
++      "integrity": "sha512-bYcLp+Vb0awsiXg/80uCRezCYHNg1/l3mt0gzHnWV9XP1W5sKa5/TCdGWaR/zBM2PeF/HbsQv/j2URNOiVuxWg==",
++      "cpu": [
++        "x64"
++      ],
++      "dev": true,
++      "license": "MPL-2.0",
++      "optional": true,
++      "os": [
++        "linux"
++      ],
++      "engines": {
++        "node": ">= 12.0.0"
++      },
++      "funding": {
++        "type": "opencollective",
++        "url": "https://opencollective.com/parcel"
++      }
++    },
++    "node_modules/lightningcss-win32-arm64-msvc": {
++      "version": "1.32.0",
++      "resolved": "https://registry.npmmirror.com/lightningcss-win32-arm64-msvc/-/lightningcss-win32-arm64-msvc-1.32.0.tgz",
++      "integrity": "sha512-8SbC8BR40pS6baCM8sbtYDSwEVQd4JlFTOlaD3gWGHfThTcABnNDBda6eTZeqbofalIJhFx0qKzgHJmcPTnGdw==",
++      "cpu": [
++        "arm64"
++      ],
++      "dev": true,
++      "license": "MPL-2.0",
++      "optional": true,
++      "os": [
++        "win32"
++      ],
++      "engines": {
++        "node": ">= 12.0.0"
++      },
++      "funding": {
++        "type": "opencollective",
++        "url": "https://opencollective.com/parcel"
++      }
++    },
++    "node_modules/lightningcss-win32-x64-msvc": {
++      "version": "1.32.0",
++      "resolved": "https://registry.npmmirror.com/lightningcss-win32-x64-msvc/-/lightningcss-win32-x64-msvc-1.32.0.tgz",
++      "integrity": "sha512-Amq9B/SoZYdDi1kFrojnoqPLxYhQ4Wo5XiL8EVJrVsB8ARoC1PWW6VGtT0WKCemjy8aC+louJnjS7U18x3b06Q==",
++      "cpu": [
++        "x64"
++      ],
++      "dev": true,
++      "license": "MPL-2.0",
++      "optional": true,
++      "os": [
++        "win32"
++      ],
++      "engines": {
++        "node": ">= 12.0.0"
++      },
++      "funding": {
++        "type": "opencollective",
++        "url": "https://opencollective.com/parcel"
++      }
++    },
++    "node_modules/magic-string": {
++      "version": "0.30.21",
++      "resolved": "https://registry.npmmirror.com/magic-string/-/magic-string-0.30.21.tgz",
++      "integrity": "sha512-vd2F4YUyEXKGcLHoq+TEyCjxueSeHnFxyyjNp80yg0XV4vUhnDer/lvvlqM/arB5bXQN5K2/3oinyCRyx8T2CQ==",
++      "license": "MIT",
++      "dependencies": {
++        "@jridgewell/sourcemap-codec": "^1.5.5"
++      }
++    },
++    "node_modules/muggle-string": {
++      "version": "0.4.1",
++      "resolved": "https://registry.npmmirror.com/muggle-string/-/muggle-string-0.4.1.tgz",
++      "integrity": "sha512-VNTrAak/KhO2i8dqqnqnAHOa3cYBwXEZe9h+D5h/1ZqFSTEFHdM65lR7RoIqq3tBBYavsOXV84NoHXZ0AkPyqQ==",
++      "dev": true,
++      "license": "MIT"
++    },
++    "node_modules/nanoid": {
++      "version": "3.3.11",
++      "resolved": "https://registry.npmmirror.com/nanoid/-/nanoid-3.3.11.tgz",
++      "integrity": "sha512-N8SpfPUnUp1bK+PMYW8qSWdl9U+wwNWI4QKxOYDy9JAro3WMX7p2OeVRF9v+347pnakNevPmiHhNmZ2HbFA76w==",
++      "funding": [
++        {
++          "type": "github",
++          "url": "https://github.com/sponsors/ai"
++        }
++      ],
++      "license": "MIT",
++      "bin": {
++        "nanoid": "bin/nanoid.cjs"
++      },
++      "engines": {
++        "node": "^10 || ^12 || ^13.7 || ^14 || >=15.0.1"
++      }
++    },
++    "node_modules/path-browserify": {
++      "version": "1.0.1",
++      "resolved": "https://registry.npmmirror.com/path-browserify/-/path-browserify-1.0.1.tgz",
++      "integrity": "sha512-b7uo2UCUOYZcnF/3ID0lulOJi/bafxa1xPe7ZPsammBSpjSWQkjNxlt635YGS2MiR9GjvuXCtz2emr3jbsz98g==",
++      "dev": true,
++      "license": "MIT"
++    },
++    "node_modules/picocolors": {
++      "version": "1.1.1",
++      "resolved": "https://registry.npmmirror.com/picocolors/-/picocolors-1.1.1.tgz",
++      "integrity": "sha512-xceH2snhtb5M9liqDsmEw56le376mTZkEX/jEb/RxNFyegNul7eNslCXP9FDj/Lcu0X8KEyMceP2ntpaHrDEVA==",
++      "license": "ISC"
++    },
++    "node_modules/picomatch": {
++      "version": "4.0.4",
++      "resolved": "https://registry.npmmirror.com/picomatch/-/picomatch-4.0.4.tgz",
++      "integrity": "sha512-QP88BAKvMam/3NxH6vj2o21R6MjxZUAd6nlwAS/pnGvN9IVLocLHxGYIzFhg6fUQ+5th6P4dv4eW9jX3DSIj7A==",
++      "dev": true,
++      "license": "MIT",
++      "engines": {
++        "node": ">=12"
++      },
++      "funding": {
++        "url": "https://github.com/sponsors/jonschlinkert"
++      }
++    },
++    "node_modules/postcss": {
++      "version": "8.5.8",
++      "resolved": "https://registry.npmmirror.com/postcss/-/postcss-8.5.8.tgz",
++      "integrity": "sha512-OW/rX8O/jXnm82Ey1k44pObPtdblfiuWnrd8X7GJ7emImCOstunGbXUpp7HdBrFQX6rJzn3sPT397Wp5aCwCHg==",
++      "funding": [
++        {
++          "type": "opencollective",
++          "url": "https://opencollective.com/postcss/"
++        },
++        {
++          "type": "tidelift",
++          "url": "https://tidelift.com/funding/github/npm/postcss"
++        },
++        {
++          "type": "github",
++          "url": "https://github.com/sponsors/ai"
++        }
++      ],
++      "license": "MIT",
++      "dependencies": {
++        "nanoid": "^3.3.11",
++        "picocolors": "^1.1.1",
++        "source-map-js": "^1.2.1"
++      },
++      "engines": {
++        "node": "^10 || ^12 || >=14"
++      }
++    },
++    "node_modules/rolldown": {
++      "version": "1.0.0-rc.12",
++      "resolved": "https://registry.npmmirror.com/rolldown/-/rolldown-1.0.0-rc.12.tgz",
++      "integrity": "sha512-yP4USLIMYrwpPHEFB5JGH1uxhcslv6/hL0OyvTuY+3qlOSJvZ7ntYnoWpehBxufkgN0cvXxppuTu5hHa/zPh+A==",
++      "dev": true,
++      "license": "MIT",
++      "dependencies": {
++        "@oxc-project/types": "=0.122.0",
++        "@rolldown/pluginutils": "1.0.0-rc.12"
++      },
++      "bin": {
++        "rolldown": "bin/cli.mjs"
++      },
++      "engines": {
++        "node": "^20.19.0 || >=22.12.0"
++      },
++      "optionalDependencies": {
++        "@rolldown/binding-android-arm64": "1.0.0-rc.12",
++        "@rolldown/binding-darwin-arm64": "1.0.0-rc.12",
++        "@rolldown/binding-darwin-x64": "1.0.0-rc.12",
++        "@rolldown/binding-freebsd-x64": "1.0.0-rc.12",
++        "@rolldown/binding-linux-arm-gnueabihf": "1.0.0-rc.12",
++        "@rolldown/binding-linux-arm64-gnu": "1.0.0-rc.12",
++        "@rolldown/binding-linux-arm64-musl": "1.0.0-rc.12",
++        "@rolldown/binding-linux-ppc64-gnu": "1.0.0-rc.12",
++        "@rolldown/binding-linux-s390x-gnu": "1.0.0-rc.12",
++        "@rolldown/binding-linux-x64-gnu": "1.0.0-rc.12",
++        "@rolldown/binding-linux-x64-musl": "1.0.0-rc.12",
++        "@rolldown/binding-openharmony-arm64": "1.0.0-rc.12",
++        "@rolldown/binding-wasm32-wasi": "1.0.0-rc.12",
++        "@rolldown/binding-win32-arm64-msvc": "1.0.0-rc.12",
++        "@rolldown/binding-win32-x64-msvc": "1.0.0-rc.12"
++      }
++    },
++    "node_modules/rolldown/node_modules/@rolldown/pluginutils": {
++      "version": "1.0.0-rc.12",
++      "resolved": "https://registry.npmmirror.com/@rolldown/pluginutils/-/pluginutils-1.0.0-rc.12.tgz",
++      "integrity": "sha512-HHMwmarRKvoFsJorqYlFeFRzXZqCt2ETQlEDOb9aqssrnVBB1/+xgTGtuTrIk5vzLNX1MjMtTf7W9z3tsSbrxw==",
++      "dev": true,
++      "license": "MIT"
++    },
++    "node_modules/source-map-js": {
++      "version": "1.2.1",
++      "resolved": "https://registry.npmmirror.com/source-map-js/-/source-map-js-1.2.1.tgz",
++      "integrity": "sha512-UXWMKhLOwVKb728IUtQPXxfYU+usdybtUrK/8uGE8CQMvrhOpwvzDBwj0QhSL7MQc7vIsISBG8VQ8+IDQxpfQA==",
++      "license": "BSD-3-Clause",
++      "engines": {
++        "node": ">=0.10.0"
++      }
++    },
++    "node_modules/tailwindcss": {
++      "version": "4.2.2",
++      "resolved": "https://registry.npmmirror.com/tailwindcss/-/tailwindcss-4.2.2.tgz",
++      "integrity": "sha512-KWBIxs1Xb6NoLdMVqhbhgwZf2PGBpPEiwOqgI4pFIYbNTfBXiKYyWoTsXgBQ9WFg/OlhnvHaY+AEpW7wSmFo2Q==",
++      "dev": true,
++      "license": "MIT"
++    },
++    "node_modules/tapable": {
++      "version": "2.3.2",
++      "resolved": "https://registry.npmmirror.com/tapable/-/tapable-2.3.2.tgz",
++      "integrity": "sha512-1MOpMXuhGzGL5TTCZFItxCc0AARf1EZFQkGqMm7ERKj8+Hgr5oLvJOVFcC+lRmR8hCe2S3jC4T5D7Vg/d7/fhA==",
++      "dev": true,
++      "license": "MIT",
++      "engines": {
++        "node": ">=6"
++      },
++      "funding": {
++        "type": "opencollective",
++        "url": "https://opencollective.com/webpack"
++      }
++    },
++    "node_modules/tinyglobby": {
++      "version": "0.2.15",
++      "resolved": "https://registry.npmmirror.com/tinyglobby/-/tinyglobby-0.2.15.tgz",
++      "integrity": "sha512-j2Zq4NyQYG5XMST4cbs02Ak8iJUdxRM0XI5QyxXuZOzKOINmWurp3smXu3y5wDcJrptwpSjgXHzIQxR0omXljQ==",
++      "dev": true,
++      "license": "MIT",
++      "dependencies": {
++        "fdir": "^6.5.0",
++        "picomatch": "^4.0.3"
++      },
++      "engines": {
++        "node": ">=12.0.0"
++      },
++      "funding": {
++        "url": "https://github.com/sponsors/SuperchupuDev"
++      }
++    },
++    "node_modules/tslib": {
++      "version": "2.8.1",
++      "resolved": "https://registry.npmmirror.com/tslib/-/tslib-2.8.1.tgz",
++      "integrity": "sha512-oJFu94HQb+KVduSUQL7wnpmqnfmLsOA/nAh6b6EH0wCEoK0/mPeXU6c3wKDV83MkOuHPRHtSXKKU99IBazS/2w==",
++      "dev": true,
++      "license": "0BSD",
++      "optional": true
++    },
++    "node_modules/typescript": {
++      "version": "5.9.3",
++      "resolved": "https://registry.npmmirror.com/typescript/-/typescript-5.9.3.tgz",
++      "integrity": "sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw==",
++      "devOptional": true,
++      "license": "Apache-2.0",
++      "bin": {
++        "tsc": "bin/tsc",
++        "tsserver": "bin/tsserver"
++      },
++      "engines": {
++        "node": ">=14.17"
++      }
++    },
++    "node_modules/undici-types": {
++      "version": "7.16.0",
++      "resolved": "https://registry.npmmirror.com/undici-types/-/undici-types-7.16.0.tgz",
++      "integrity": "sha512-Zz+aZWSj8LE6zoxD+xrjh4VfkIG8Ya6LvYkZqtUQGJPZjYl53ypCaUwWqo7eI0x66KBGeRo+mlBEkMSeSZ38Nw==",
++      "dev": true,
++      "license": "MIT"
++    },
++    "node_modules/vite": {
++      "version": "8.0.3",
++      "resolved": "https://registry.npmmirror.com/vite/-/vite-8.0.3.tgz",
++      "integrity": "sha512-B9ifbFudT1TFhfltfaIPgjo9Z3mDynBTJSUYxTjOQruf/zHH+ezCQKcoqO+h7a9Pw9Nm/OtlXAiGT1axBgwqrQ==",
++      "dev": true,
++      "license": "MIT",
++      "dependencies": {
++        "lightningcss": "^1.32.0",
++        "picomatch": "^4.0.4",
++        "postcss": "^8.5.8",
++        "rolldown": "1.0.0-rc.12",
++        "tinyglobby": "^0.2.15"
++      },
++      "bin": {
++        "vite": "bin/vite.js"
++      },
++      "engines": {
++        "node": "^20.19.0 || >=22.12.0"
++      },
++      "funding": {
++        "url": "https://github.com/vitejs/vite?sponsor=1"
++      },
++      "optionalDependencies": {
++        "fsevents": "~2.3.3"
++      },
++      "peerDependencies": {
++        "@types/node": "^20.19.0 || >=22.12.0",
++        "@vitejs/devtools": "^0.1.0",
++        "esbuild": "^0.27.0",
++        "jiti": ">=1.21.0",
++        "less": "^4.0.0",
++        "sass": "^1.70.0",
++        "sass-embedded": "^1.70.0",
++        "stylus": ">=0.54.8",
++        "sugarss": "^5.0.0",
++        "terser": "^5.16.0",
++        "tsx": "^4.8.1",
++        "yaml": "^2.4.2"
++      },
++      "peerDependenciesMeta": {
++        "@types/node": {
++          "optional": true
++        },
++        "@vitejs/devtools": {
++          "optional": true
++        },
++        "esbuild": {
++          "optional": true
++        },
++        "jiti": {
++          "optional": true
++        },
++        "less": {
++          "optional": true
++        },
++        "sass": {
++          "optional": true
++        },
++        "sass-embedded": {
++          "optional": true
++        },
++        "stylus": {
++          "optional": true
++        },
++        "sugarss": {
++          "optional": true
++        },
++        "terser": {
++          "optional": true
++        },
++        "tsx": {
++          "optional": true
++        },
++        "yaml": {
++          "optional": true
++        }
++      }
++    },
++    "node_modules/vscode-uri": {
++      "version": "3.1.0",
++      "resolved": "https://registry.npmmirror.com/vscode-uri/-/vscode-uri-3.1.0.tgz",
++      "integrity": "sha512-/BpdSx+yCQGnCvecbyXdxHDkuk55/G3xwnC0GqY4gmQ3j+A+g8kzzgB4Nk/SINjqn6+waqw3EgbVF2QKExkRxQ==",
++      "dev": true,
++      "license": "MIT"
++    },
++    "node_modules/vue": {
++      "version": "3.5.31",
++      "resolved": "https://registry.npmmirror.com/vue/-/vue-3.5.31.tgz",
++      "integrity": "sha512-iV/sU9SzOlmA/0tygSmjkEN6Jbs3nPoIPFhCMLD2STrjgOU8DX7ZtzMhg4ahVwf5Rp9KoFzcXeB1ZrVbLBp5/Q==",
++      "license": "MIT",
++      "dependencies": {
++        "@vue/compiler-dom": "3.5.31",
++        "@vue/compiler-sfc": "3.5.31",
++        "@vue/runtime-dom": "3.5.31",
++        "@vue/server-renderer": "3.5.31",
++        "@vue/shared": "3.5.31"
++      },
++      "peerDependencies": {
++        "typescript": "*"
++      },
++      "peerDependenciesMeta": {
++        "typescript": {
++          "optional": true
++        }
++      }
++    },
++    "node_modules/vue-tsc": {
++      "version": "3.2.6",
++      "resolved": "https://registry.npmmirror.com/vue-tsc/-/vue-tsc-3.2.6.tgz",
++      "integrity": "sha512-gYW/kWI0XrwGzd0PKc7tVB/qpdeAkIZLNZb10/InizkQjHjnT8weZ/vBarZoj4kHKbUTZT/bAVgoOr8x4NsQ/Q==",
++      "dev": true,
++      "license": "MIT",
++      "dependencies": {
++        "@volar/typescript": "2.4.28",
++        "@vue/language-core": "3.2.6"
++      },
++      "bin": {
++        "vue-tsc": "bin/vue-tsc.js"
++      },
++      "peerDependencies": {
++        "typescript": ">=5.0.0"
++      }
++    }
++  }
++}
+diff --git a/frontend/package.json b/frontend/package.json
+new file mode 100644
+index 0000000..7299a0b
+--- /dev/null
++++ b/frontend/package.json
+@@ -0,0 +1,24 @@
++{
++  "name": "frontend",
++  "private": true,
++  "version": "0.0.0",
++  "type": "module",
++  "scripts": {
++    "dev": "vite",
++    "build": "vue-tsc -b && vite build",
++    "preview": "vite preview"
++  },
++  "dependencies": {
++    "vue": "^3.5.30"
++  },
++  "devDependencies": {
++    "@tailwindcss/vite": "^4.2.2",
++    "@types/node": "^24.12.0",
++    "@vitejs/plugin-vue": "^6.0.5",
++    "@vue/tsconfig": "^0.9.0",
++    "tailwindcss": "^4.2.2",
++    "typescript": "~5.9.3",
++    "vite": "^8.0.1",
++    "vue-tsc": "^3.2.5"
++  }
++}
+diff --git a/frontend/public/favicon.svg b/frontend/public/favicon.svg
+new file mode 100644
+index 0000000..6893eb1
+--- /dev/null
++++ b/frontend/public/favicon.svg
+@@ -0,0 +1 @@
++<svg xmlns="http://www.w3.org/2000/svg" width="48" height="46" fill="none" viewBox="0 0 48 46"><path fill="#863bff" d="M25.946 44.938c-.664.845-2.021.375-2.021-.698V33.937a2.26 2.26 0 0 0-2.262-2.262H10.287c-.92 0-1.456-1.04-.92-1.788l7.48-10.471c1.07-1.497 0-3.578-1.842-3.578H1.237c-.92 0-1.456-1.04-.92-1.788L10.013.474c.214-.297.556-.474.92-.474h28.894c.92 0 1.456 1.04.92 1.788l-7.48 10.471c-1.07 1.498 0 3.579 1.842 3.579h11.377c.943 0 1.473 1.088.89 1.83L25.947 44.94z" style="fill:#863bff;fill:color(display-p3 .5252 .23 1);fill-opacity:1"/><mask id="a" width="48" height="46" x="0" y="0" maskUnits="userSpaceOnUse" style="mask-type:alpha"><path fill="#000" d="M25.842 44.938c-.664.844-2.021.375-2.021-.698V33.937a2.26 2.26 0 0 0-2.262-2.262H10.183c-.92 0-1.456-1.04-.92-1.788l7.48-10.471c1.07-1.498 0-3.579-1.842-3.579H1.133c-.92 0-1.456-1.04-.92-1.787L9.91.473c.214-.297.556-.474.92-.474h28.894c.92 0 1.456 1.04.92 1.788l-7.48 10.471c-1.07 1.498 0 3.578 1.842 3.578h11.377c.943 0 1.473 1.088.89 1.832L25.843 44.94z" style="fill:#000;fill-opacity:1"/></mask><g mask="url(#a)"><g filter="url(#b)"><ellipse cx="5.508" cy="14.704" fill="#ede6ff" rx="5.508" ry="14.704" style="fill:#ede6ff;fill:color(display-p3 .9275 .9033 1);fill-opacity:1" transform="matrix(.00324 1 1 -.00324 -4.47 31.516)"/></g><g filter="url(#c)"><ellipse cx="10.399" cy="29.851" fill="#ede6ff" rx="10.399" ry="29.851" style="fill:#ede6ff;fill:color(display-p3 .9275 .9033 1);fill-opacity:1" transform="matrix(.00324 1 1 -.00324 -39.328 7.883)"/></g><g filter="url(#d)"><ellipse cx="5.508" cy="30.487" fill="#7e14ff" rx="5.508" ry="30.487" style="fill:#7e14ff;fill:color(display-p3 .4922 .0767 1);fill-opacity:1" transform="rotate(89.814 -25.913 -14.639)scale(1 -1)"/></g><g filter="url(#e)"><ellipse cx="5.508" cy="30.599" fill="#7e14ff" rx="5.508" ry="30.599" style="fill:#7e14ff;fill:color(display-p3 .4922 .0767 1);fill-opacity:1" transform="rotate(89.814 -32.644 -3.334)scale(1 -1)"/></g><g filter="url(#f)"><ellipse cx="5.508" cy="30.599" fill="#7e14ff" rx="5.508" ry="30.599" style="fill:#7e14ff;fill:color(display-p3 .4922 .0767 1);fill-opacity:1" transform="matrix(.00324 1 1 -.00324 -34.34 30.47)"/></g><g filter="url(#g)"><ellipse cx="14.072" cy="22.078" fill="#ede6ff" rx="14.072" ry="22.078" style="fill:#ede6ff;fill:color(display-p3 .9275 .9033 1);fill-opacity:1" transform="rotate(93.35 24.506 48.493)scale(-1 1)"/></g><g filter="url(#h)"><ellipse cx="3.47" cy="21.501" fill="#7e14ff" rx="3.47" ry="21.501" style="fill:#7e14ff;fill:color(display-p3 .4922 .0767 1);fill-opacity:1" transform="rotate(89.009 28.708 47.59)scale(-1 1)"/></g><g filter="url(#i)"><ellipse cx="3.47" cy="21.501" fill="#7e14ff" rx="3.47" ry="21.501" style="fill:#7e14ff;fill:color(display-p3 .4922 .0767 1);fill-opacity:1" transform="rotate(89.009 28.708 47.59)scale(-1 1)"/></g><g filter="url(#j)"><ellipse cx=".387" cy="8.972" fill="#7e14ff" rx="4.407" ry="29.108" style="fill:#7e14ff;fill:color(display-p3 .4922 .0767 1);fill-opacity:1" transform="rotate(39.51 .387 8.972)"/></g><g filter="url(#k)"><ellipse cx="47.523" cy="-6.092" fill="#7e14ff" rx="4.407" ry="29.108" style="fill:#7e14ff;fill:color(display-p3 .4922 .0767 1);fill-opacity:1" transform="rotate(37.892 47.523 -6.092)"/></g><g filter="url(#l)"><ellipse cx="41.412" cy="6.333" fill="#47bfff" rx="5.971" ry="9.665" style="fill:#47bfff;fill:color(display-p3 .2799 .748 1);fill-opacity:1" transform="rotate(37.892 41.412 6.333)"/></g><g filter="url(#m)"><ellipse cx="-1.879" cy="38.332" fill="#7e14ff" rx="4.407" ry="29.108" style="fill:#7e14ff;fill:color(display-p3 .4922 .0767 1);fill-opacity:1" transform="rotate(37.892 -1.88 38.332)"/></g><g filter="url(#n)"><ellipse cx="-1.879" cy="38.332" fill="#7e14ff" rx="4.407" ry="29.108" style="fill:#7e14ff;fill:color(display-p3 .4922 .0767 1);fill-opacity:1" transform="rotate(37.892 -1.88 38.332)"/></g><g filter="url(#o)"><ellipse cx="35.651" cy="29.907" fill="#7e14ff" rx="4.407" ry="29.108" style="fill:#7e14ff;fill:color(display-p3 .4922 .0767 1);fill-opacity:1" transform="rotate(37.892 35.651 29.907)"/></g><g filter="url(#p)"><ellipse cx="38.418" cy="32.4" fill="#47bfff" rx="5.971" ry="15.297" style="fill:#47bfff;fill:color(display-p3 .2799 .748 1);fill-opacity:1" transform="rotate(37.892 38.418 32.4)"/></g></g><defs><filter id="b" width="60.045" height="41.654" x="-19.77" y="16.149" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse"><feFlood flood-opacity="0" result="BackgroundImageFix"/><feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape"/><feGaussianBlur result="effect1_foregroundBlur_2002_17158" stdDeviation="7.659"/></filter><filter id="c" width="90.34" height="51.437" x="-54.613" y="-7.533" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse"><feFlood flood-opacity="0" result="BackgroundImageFix"/><feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape"/><feGaussianBlur result="effect1_foregroundBlur_2002_17158" stdDeviation="7.659"/></filter><filter id="d" width="79.355" height="29.4" x="-49.64" y="2.03" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse"><feFlood flood-opacity="0" result="BackgroundImageFix"/><feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape"/><feGaussianBlur result="effect1_foregroundBlur_2002_17158" stdDeviation="4.596"/></filter><filter id="e" width="79.579" height="29.4" x="-45.045" y="20.029" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse"><feFlood flood-opacity="0" result="BackgroundImageFix"/><feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape"/><feGaussianBlur result="effect1_foregroundBlur_2002_17158" stdDeviation="4.596"/></filter><filter id="f" width="79.579" height="29.4" x="-43.513" y="21.178" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse"><feFlood flood-opacity="0" result="BackgroundImageFix"/><feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape"/><feGaussianBlur result="effect1_foregroundBlur_2002_17158" stdDeviation="4.596"/></filter><filter id="g" width="74.749" height="58.852" x="15.756" y="-17.901" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse"><feFlood flood-opacity="0" result="BackgroundImageFix"/><feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape"/><feGaussianBlur result="effect1_foregroundBlur_2002_17158" stdDeviation="7.659"/></filter><filter id="h" width="61.377" height="25.362" x="23.548" y="2.284" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse"><feFlood flood-opacity="0" result="BackgroundImageFix"/><feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape"/><feGaussianBlur result="effect1_foregroundBlur_2002_17158" stdDeviation="4.596"/></filter><filter id="i" width="61.377" height="25.362" x="23.548" y="2.284" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse"><feFlood flood-opacity="0" result="BackgroundImageFix"/><feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape"/><feGaussianBlur result="effect1_foregroundBlur_2002_17158" stdDeviation="4.596"/></filter><filter id="j" width="56.045" height="63.649" x="-27.636" y="-22.853" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse"><feFlood flood-opacity="0" result="BackgroundImageFix"/><feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape"/><feGaussianBlur result="effect1_foregroundBlur_2002_17158" stdDeviation="4.596"/></filter><filter id="k" width="54.814" height="64.646" x="20.116" y="-38.415" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse"><feFlood flood-opacity="0" result="BackgroundImageFix"/><feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape"/><feGaussianBlur result="effect1_foregroundBlur_2002_17158" stdDeviation="4.596"/></filter><filter id="l" width="33.541" height="35.313" x="24.641" y="-11.323" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse"><feFlood flood-opacity="0" result="BackgroundImageFix"/><feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape"/><feGaussianBlur result="effect1_foregroundBlur_2002_17158" stdDeviation="4.596"/></filter><filter id="m" width="54.814" height="64.646" x="-29.286" y="6.009" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse"><feFlood flood-opacity="0" result="BackgroundImageFix"/><feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape"/><feGaussianBlur result="effect1_foregroundBlur_2002_17158" stdDeviation="4.596"/></filter><filter id="n" width="54.814" height="64.646" x="-29.286" y="6.009" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse"><feFlood flood-opacity="0" result="BackgroundImageFix"/><feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape"/><feGaussianBlur result="effect1_foregroundBlur_2002_17158" stdDeviation="4.596"/></filter><filter id="o" width="54.814" height="64.646" x="8.244" y="-2.416" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse"><feFlood flood-opacity="0" result="BackgroundImageFix"/><feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape"/><feGaussianBlur result="effect1_foregroundBlur_2002_17158" stdDeviation="4.596"/></filter><filter id="p" width="39.409" height="43.623" x="18.713" y="10.588" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse"><feFlood flood-opacity="0" result="BackgroundImageFix"/><feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape"/><feGaussianBlur result="effect1_foregroundBlur_2002_17158" stdDeviation="4.596"/></filter></defs></svg>
+\ No newline at end of file
+diff --git a/frontend/public/icons.svg b/frontend/public/icons.svg
+new file mode 100644
+index 0000000..e952219
+--- /dev/null
++++ b/frontend/public/icons.svg
+@@ -0,0 +1,24 @@
++<svg xmlns="http://www.w3.org/2000/svg">
++  <symbol id="bluesky-icon" viewBox="0 0 16 17">
++    <g clip-path="url(#bluesky-clip)"><path fill="#08060d" d="M7.75 7.735c-.693-1.348-2.58-3.86-4.334-5.097-1.68-1.187-2.32-.981-2.74-.79C.188 2.065.1 2.812.1 3.251s.241 3.602.398 4.13c.52 1.744 2.367 2.333 4.07 2.145-2.495.37-4.71 1.278-1.805 4.512 3.196 3.309 4.38-.71 4.987-2.746.608 2.036 1.307 5.91 4.93 2.746 2.72-2.746.747-4.143-1.747-4.512 1.702.189 3.55-.4 4.07-2.145.156-.528.397-3.691.397-4.13s-.088-1.186-.575-1.406c-.42-.19-1.06-.395-2.741.79-1.755 1.24-3.64 3.752-4.334 5.099"/></g>
++    <defs><clipPath id="bluesky-clip"><path fill="#fff" d="M.1.85h15.3v15.3H.1z"/></clipPath></defs>
++  </symbol>
++  <symbol id="discord-icon" viewBox="0 0 20 19">
++    <path fill="#08060d" d="M16.224 3.768a14.5 14.5 0 0 0-3.67-1.153c-.158.286-.343.67-.47.976a13.5 13.5 0 0 0-4.067 0c-.128-.306-.317-.69-.476-.976A14.4 14.4 0 0 0 3.868 3.77C1.546 7.28.916 10.703 1.231 14.077a14.7 14.7 0 0 0 4.5 2.306q.545-.748.965-1.587a9.5 9.5 0 0 1-1.518-.74q.191-.14.372-.293c2.927 1.369 6.107 1.369 8.999 0q.183.152.372.294-.723.437-1.52.74.418.838.963 1.588a14.6 14.6 0 0 0 4.504-2.308c.37-3.911-.63-7.302-2.644-10.309m-9.13 8.234c-.878 0-1.599-.82-1.599-1.82 0-.998.705-1.82 1.6-1.82.894 0 1.614.82 1.599 1.82.001 1-.705 1.82-1.6 1.82m5.91 0c-.878 0-1.599-.82-1.599-1.82 0-.998.705-1.82 1.6-1.82.893 0 1.614.82 1.599 1.82 0 1-.706 1.82-1.6 1.82"/>
++  </symbol>
++  <symbol id="documentation-icon" viewBox="0 0 21 20">
++    <path fill="none" stroke="#aa3bff" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.35" d="m15.5 13.333 1.533 1.322c.645.555.967.833.967 1.178s-.322.623-.967 1.179L15.5 18.333m-3.333-5-1.534 1.322c-.644.555-.966.833-.966 1.178s.322.623.966 1.179l1.534 1.321"/>
++    <path fill="none" stroke="#aa3bff" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.35" d="M17.167 10.836v-4.32c0-1.41 0-2.117-.224-2.68-.359-.906-1.118-1.621-2.08-1.96-.599-.21-1.349-.21-2.848-.21-2.623 0-3.935 0-4.983.369-1.684.591-3.013 1.842-3.641 3.428C3 6.449 3 7.684 3 10.154v2.122c0 2.558 0 3.838.706 4.726q.306.383.713.671c.76.536 1.79.64 3.581.66"/>
++    <path fill="none" stroke="#aa3bff" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.35" d="M3 10a2.78 2.78 0 0 1 2.778-2.778c.555 0 1.209.097 1.748-.047.48-.129.854-.503.982-.982.145-.54.048-1.194.048-1.749a2.78 2.78 0 0 1 2.777-2.777"/>
++  </symbol>
++  <symbol id="github-icon" viewBox="0 0 19 19">
++    <path fill="#08060d" fill-rule="evenodd" d="M9.356 1.85C5.05 1.85 1.57 5.356 1.57 9.694a7.84 7.84 0 0 0 5.324 7.44c.387.079.528-.168.528-.376 0-.182-.013-.805-.013-1.454-2.165.467-2.616-.935-2.616-.935-.349-.91-.864-1.143-.864-1.143-.71-.48.051-.48.051-.48.787.051 1.2.805 1.2.805.695 1.194 1.817.857 2.268.649.064-.507.27-.857.49-1.052-1.728-.182-3.545-.857-3.545-3.87 0-.857.31-1.558.8-2.104-.078-.195-.349-1 .077-2.078 0 0 .657-.208 2.14.805a7.5 7.5 0 0 1 1.946-.26c.657 0 1.328.092 1.946.26 1.483-1.013 2.14-.805 2.14-.805.426 1.078.155 1.883.078 2.078.502.546.799 1.247.799 2.104 0 3.013-1.818 3.675-3.558 3.87.284.247.528.714.528 1.454 0 1.052-.012 1.896-.012 2.156 0 .208.142.455.528.377a7.84 7.84 0 0 0 5.324-7.441c.013-4.338-3.48-7.844-7.773-7.844" clip-rule="evenodd"/>
++  </symbol>
++  <symbol id="social-icon" viewBox="0 0 20 20">
++    <path fill="none" stroke="#aa3bff" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.35" d="M12.5 6.667a4.167 4.167 0 1 0-8.334 0 4.167 4.167 0 0 0 8.334 0"/>
++    <path fill="none" stroke="#aa3bff" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.35" d="M2.5 16.667a5.833 5.833 0 0 1 8.75-5.053m3.837.474.513 1.035c.07.144.257.282.414.309l.93.155c.596.1.736.536.307.965l-.723.73a.64.64 0 0 0-.152.531l.207.903c.164.715-.213.991-.84.618l-.872-.52a.63.63 0 0 0-.577 0l-.872.52c-.624.373-1.003.094-.84-.618l.207-.903a.64.64 0 0 0-.152-.532l-.723-.729c-.426-.43-.289-.864.306-.964l.93-.156a.64.64 0 0 0 .412-.31l.513-1.034c.28-.562.735-.562 1.012 0"/>
++  </symbol>
++  <symbol id="x-icon" viewBox="0 0 19 19">
++    <path fill="#08060d" fill-rule="evenodd" d="M1.893 1.98c.052.072 1.245 1.769 2.653 3.77l2.892 4.114c.183.261.333.48.333.486s-.068.089-.152.183l-.522.593-.765.867-3.597 4.087c-.375.426-.734.834-.798.905a1 1 0 0 0-.118.148c0 .01.236.017.664.017h.663l.729-.83c.4-.457.796-.906.879-.999a692 692 0 0 0 1.794-2.038c.034-.037.301-.34.594-.675l.551-.624.345-.392a7 7 0 0 1 .34-.374c.006 0 .93 1.306 2.052 2.903l2.084 2.965.045.063h2.275c1.87 0 2.273-.003 2.266-.021-.008-.02-1.098-1.572-3.894-5.547-2.013-2.862-2.28-3.246-2.273-3.266.008-.019.282-.332 2.085-2.38l2-2.274 1.567-1.782c.022-.028-.016-.03-.65-.03h-.674l-.3.342a871 871 0 0 1-1.782 2.025c-.067.075-.405.458-.75.852a100 100 0 0 1-.803.91c-.148.172-.299.344-.99 1.127-.304.343-.32.358-.345.327-.015-.019-.904-1.282-1.976-2.808L6.365 1.85H1.8zm1.782.91 8.078 11.294c.772 1.08 1.413 1.973 1.425 1.984.016.017.241.02 1.05.017l1.03-.004-2.694-3.766L7.796 5.75 5.722 2.852l-1.039-.004-1.039-.004z" clip-rule="evenodd"/>
++  </symbol>
++</svg>
+diff --git a/frontend/src/App.vue b/frontend/src/App.vue
+new file mode 100644
+index 0000000..388b05e
+--- /dev/null
++++ b/frontend/src/App.vue
+@@ -0,0 +1,7 @@
++<script setup lang="ts">
++import HelloWorld from './components/HelloWorld.vue'
++</script>
++
++<template>
++  <HelloWorld />
++</template>
+diff --git a/frontend/src/api/client.ts b/frontend/src/api/client.ts
+new file mode 100644
+index 0000000..0b32ca6
+--- /dev/null
++++ b/frontend/src/api/client.ts
+@@ -0,0 +1,48 @@
++/**
++ * 后端 API 客户端
++ * 提供类型安全的 API 调用封装
++ */
++
++/** 标准 API 响应信封格式 */
++export interface ApiEnvelope<T = unknown> {
++  status: 'success' | 'error'
++  data: T
++  message: string
++  trace_id: string
++}
++
++/** 健康检查响应数据 */
++export interface HealthData {
++  service: string
++  version: string
++  health: string
++}
++
++const API_BASE = '/api/v1'
++
++/**
++ * 通用 API 请求函数
++ * 自动解析 JSON 并验证标准信封格式
++ */
++async function request<T>(
++  endpoint: string,
++  options?: RequestInit
++): Promise<ApiEnvelope<T>> {
++  const response = await fetch(`${API_BASE}${endpoint}`, {
++    headers: {
++      'Content-Type': 'application/json',
++    },
++    ...options,
++  })
++
++  if (!response.ok) {
++    throw new Error(`API error: ${response.status} ${response.statusText}`)
++  }
++
++  return response.json()
++}
++
++/** 健康检查 API */
++export async function getHealth(): Promise<ApiEnvelope<HealthData>> {
++  return request<HealthData>('/health')
++}
+diff --git a/frontend/src/assets/hero.png b/frontend/src/assets/hero.png
+new file mode 100644
+index 0000000..cc51a3d
+Binary files /dev/null and b/frontend/src/assets/hero.png differ
+diff --git a/frontend/src/assets/vite.svg b/frontend/src/assets/vite.svg
+new file mode 100644
+index 0000000..5101b67
+--- /dev/null
++++ b/frontend/src/assets/vite.svg
+@@ -0,0 +1 @@
++<svg xmlns="http://www.w3.org/2000/svg" width="77" height="47" fill="none" aria-labelledby="vite-logo-title" viewBox="0 0 77 47"><title id="vite-logo-title">Vite</title><style>.parenthesis{fill:#000}@media (prefers-color-scheme:dark){.parenthesis{fill:#fff}}</style><path fill="#9135ff" d="M40.151 45.71c-.663.844-2.02.374-2.02-.699V34.708a2.26 2.26 0 0 0-2.262-2.262H24.493c-.92 0-1.457-1.04-.92-1.788l7.479-10.471c1.07-1.498 0-3.578-1.842-3.578H15.443c-.92 0-1.456-1.04-.92-1.788l9.696-13.576c.213-.297.556-.474.92-.474h28.894c.92 0 1.456 1.04.92 1.788l-7.48 10.472c-1.07 1.497 0 3.578 1.842 3.578h11.376c.944 0 1.474 1.087.89 1.83L40.153 45.712z"/><mask id="a" width="48" height="47" x="14" y="0" maskUnits="userSpaceOnUse" style="mask-type:alpha"><path fill="#000" d="M40.047 45.71c-.663.843-2.02.374-2.02-.699V34.708a2.26 2.26 0 0 0-2.262-2.262H24.389c-.92 0-1.457-1.04-.92-1.788l7.479-10.472c1.07-1.497 0-3.578-1.842-3.578H15.34c-.92 0-1.456-1.04-.92-1.788l9.696-13.575c.213-.297.556-.474.92-.474H53.93c.92 0 1.456 1.04.92 1.788L47.37 13.03c-1.07 1.498 0 3.578 1.842 3.578h11.376c.944 0 1.474 1.088.89 1.831L40.049 45.712z"/></mask><g mask="url(#a)"><g filter="url(#b)"><ellipse cx="5.508" cy="14.704" fill="#eee6ff" rx="5.508" ry="14.704" transform="rotate(269.814 20.96 11.29)scale(-1 1)"/></g><g filter="url(#c)"><ellipse cx="10.399" cy="29.851" fill="#eee6ff" rx="10.399" ry="29.851" transform="rotate(89.814 -16.902 -8.275)scale(1 -1)"/></g><g filter="url(#d)"><ellipse cx="5.508" cy="30.487" fill="#8900ff" rx="5.508" ry="30.487" transform="rotate(89.814 -19.197 -7.127)scale(1 -1)"/></g><g filter="url(#e)"><ellipse cx="5.508" cy="30.599" fill="#8900ff" rx="5.508" ry="30.599" transform="rotate(89.814 -25.928 4.177)scale(1 -1)"/></g><g filter="url(#f)"><ellipse cx="5.508" cy="30.599" fill="#8900ff" rx="5.508" ry="30.599" transform="rotate(89.814 -25.738 5.52)scale(1 -1)"/></g><g filter="url(#g)"><ellipse cx="14.072" cy="22.078" fill="#eee6ff" rx="14.072" ry="22.078" transform="rotate(93.35 31.245 55.578)scale(-1 1)"/></g><g filter="url(#h)"><ellipse cx="3.47" cy="21.501" fill="#8900ff" rx="3.47" ry="21.501" transform="rotate(89.009 35.419 55.202)scale(-1 1)"/></g><g filter="url(#i)"><ellipse cx="3.47" cy="21.501" fill="#8900ff" rx="3.47" ry="21.501" transform="rotate(89.009 35.419 55.202)scale(-1 1)"/></g><g filter="url(#j)"><ellipse cx="14.592" cy="9.743" fill="#8900ff" rx="4.407" ry="29.108" transform="rotate(39.51 14.592 9.743)"/></g><g filter="url(#k)"><ellipse cx="61.728" cy="-5.321" fill="#8900ff" rx="4.407" ry="29.108" transform="rotate(37.892 61.728 -5.32)"/></g><g filter="url(#l)"><ellipse cx="55.618" cy="7.104" fill="#00c2ff" rx="5.971" ry="9.665" transform="rotate(37.892 55.618 7.104)"/></g><g filter="url(#m)"><ellipse cx="12.326" cy="39.103" fill="#8900ff" rx="4.407" ry="29.108" transform="rotate(37.892 12.326 39.103)"/></g><g filter="url(#n)"><ellipse cx="12.326" cy="39.103" fill="#8900ff" rx="4.407" ry="29.108" transform="rotate(37.892 12.326 39.103)"/></g><g filter="url(#o)"><ellipse cx="49.857" cy="30.678" fill="#8900ff" rx="4.407" ry="29.108" transform="rotate(37.892 49.857 30.678)"/></g><g filter="url(#p)"><ellipse cx="52.623" cy="33.171" fill="#00c2ff" rx="5.971" ry="15.297" transform="rotate(37.892 52.623 33.17)"/></g></g><path d="M6.919 0c-9.198 13.166-9.252 33.575 0 46.789h6.215c-9.25-13.214-9.196-33.623 0-46.789zm62.424 0h-6.215c9.198 13.166 9.252 33.575 0 46.789h6.215c9.25-13.214 9.196-33.623 0-46.789" class="parenthesis"/><defs><filter id="b" width="60.045" height="41.654" x="-5.564" y="16.92" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse"><feFlood flood-opacity="0" result="BackgroundImageFix"/><feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape"/><feGaussianBlur result="effect1_foregroundBlur_2002_17286" stdDeviation="7.659"/></filter><filter id="c" width="90.34" height="51.437" x="-40.407" y="-6.762" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse"><feFlood flood-opacity="0" result="BackgroundImageFix"/><feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape"/><feGaussianBlur result="effect1_foregroundBlur_2002_17286" stdDeviation="7.659"/></filter><filter id="d" width="79.355" height="29.4" x="-35.435" y="2.801" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse"><feFlood flood-opacity="0" result="BackgroundImageFix"/><feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape"/><feGaussianBlur result="effect1_foregroundBlur_2002_17286" stdDeviation="4.596"/></filter><filter id="e" width="79.579" height="29.4" x="-30.84" y="20.8" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse"><feFlood flood-opacity="0" result="BackgroundImageFix"/><feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape"/><feGaussianBlur result="effect1_foregroundBlur_2002_17286" stdDeviation="4.596"/></filter><filter id="f" width="79.579" height="29.4" x="-29.307" y="21.949" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse"><feFlood flood-opacity="0" result="BackgroundImageFix"/><feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape"/><feGaussianBlur result="effect1_foregroundBlur_2002_17286" stdDeviation="4.596"/></filter><filter id="g" width="74.749" height="58.852" x="29.961" y="-17.13" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse"><feFlood flood-opacity="0" result="BackgroundImageFix"/><feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape"/><feGaussianBlur result="effect1_foregroundBlur_2002_17286" stdDeviation="7.659"/></filter><filter id="h" width="61.377" height="25.362" x="37.754" y="3.055" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse"><feFlood flood-opacity="0" result="BackgroundImageFix"/><feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape"/><feGaussianBlur result="effect1_foregroundBlur_2002_17286" stdDeviation="4.596"/></filter><filter id="i" width="61.377" height="25.362" x="37.754" y="3.055" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse"><feFlood flood-opacity="0" result="BackgroundImageFix"/><feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape"/><feGaussianBlur result="effect1_foregroundBlur_2002_17286" stdDeviation="4.596"/></filter><filter id="j" width="56.045" height="63.649" x="-13.43" y="-22.082" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse"><feFlood flood-opacity="0" result="BackgroundImageFix"/><feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape"/><feGaussianBlur result="effect1_foregroundBlur_2002_17286" stdDeviation="4.596"/></filter><filter id="k" width="54.814" height="64.646" x="34.321" y="-37.644" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse"><feFlood flood-opacity="0" result="BackgroundImageFix"/><feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape"/><feGaussianBlur result="effect1_foregroundBlur_2002_17286" stdDeviation="4.596"/></filter><filter id="l" width="33.541" height="35.313" x="38.847" y="-10.552" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse"><feFlood flood-opacity="0" result="BackgroundImageFix"/><feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape"/><feGaussianBlur result="effect1_foregroundBlur_2002_17286" stdDeviation="4.596"/></filter><filter id="m" width="54.814" height="64.646" x="-15.081" y="6.78" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse"><feFlood flood-opacity="0" result="BackgroundImageFix"/><feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape"/><feGaussianBlur result="effect1_foregroundBlur_2002_17286" stdDeviation="4.596"/></filter><filter id="n" width="54.814" height="64.646" x="-15.081" y="6.78" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse"><feFlood flood-opacity="0" result="BackgroundImageFix"/><feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape"/><feGaussianBlur result="effect1_foregroundBlur_2002_17286" stdDeviation="4.596"/></filter><filter id="o" width="54.814" height="64.646" x="22.45" y="-1.645" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse"><feFlood flood-opacity="0" result="BackgroundImageFix"/><feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape"/><feGaussianBlur result="effect1_foregroundBlur_2002_17286" stdDeviation="4.596"/></filter><filter id="p" width="39.409" height="43.623" x="32.919" y="11.36" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse"><feFlood flood-opacity="0" result="BackgroundImageFix"/><feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape"/><feGaussianBlur result="effect1_foregroundBlur_2002_17286" stdDeviation="4.596"/></filter></defs></svg>
+diff --git a/frontend/src/assets/vue.svg b/frontend/src/assets/vue.svg
+new file mode 100644
+index 0000000..770e9d3
+--- /dev/null
++++ b/frontend/src/assets/vue.svg
+@@ -0,0 +1 @@
++<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" aria-hidden="true" role="img" class="iconify iconify--logos" width="37.07" height="36" preserveAspectRatio="xMidYMid meet" viewBox="0 0 256 198"><path fill="#41B883" d="M204.8 0H256L128 220.8L0 0h97.92L128 51.2L157.44 0h47.36Z"></path><path fill="#41B883" d="m0 0l128 220.8L256 0h-51.2L128 132.48L50.56 0H0Z"></path><path fill="#35495E" d="M50.56 0L128 133.12L204.8 0h-47.36L128 51.2L97.92 0H50.56Z"></path></svg>
+\ No newline at end of file
+diff --git a/frontend/src/components/HelloWorld.vue b/frontend/src/components/HelloWorld.vue
+new file mode 100644
+index 0000000..84c66ef
+--- /dev/null
++++ b/frontend/src/components/HelloWorld.vue
+@@ -0,0 +1,75 @@
++<script setup lang="ts">
++import { ref, onMounted } from 'vue'
++import { getHealth, type HealthData } from '../api/client'
++
++const healthStatus = ref<HealthData | null>(null)
++const error = ref<string | null>(null)
++const loading = ref(true)
++
++onMounted(async () => {
++  try {
++    const response = await getHealth()
++    if (response.status === 'success') {
++      healthStatus.value = response.data
++    } else {
++      error.value = response.message || 'Unknown error'
++    }
++  } catch (e) {
++    error.value = e instanceof Error ? e.message : 'Failed to connect to backend'
++  } finally {
++    loading.value = false
++  }
++})
++</script>
++
++<template>
++  <div class="min-h-screen bg-gradient-to-br from-indigo-50 to-purple-50 flex items-center justify-center p-4">
++    <div class="bg-white rounded-2xl shadow-xl p-8 max-w-md w-full text-center">
++      <h1 class="text-3xl font-bold text-gray-900 mb-2">AI-Class</h1>
++      <p class="text-gray-500 mb-6">智能学习平台</p>
++
++      <div class="border rounded-xl p-4 mb-4">
++        <h2 class="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-3">
++          后端连通性检查
++        </h2>
++
++        <div v-if="loading" class="flex items-center justify-center gap-2 text-gray-400">
++          <svg class="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
++            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
++            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
++          </svg>
++          <span>连接中...</span>
++        </div>
++
++        <div v-else-if="healthStatus" class="space-y-2">
++          <div class="flex items-center justify-center gap-2 text-green-600">
++            <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
++              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
++            </svg>
++            <span class="font-semibold">连接成功</span>
++          </div>
++          <div class="text-sm text-gray-500 space-y-1">
++            <p>服务: {{ healthStatus.service }}</p>
++            <p>版本: {{ healthStatus.version }}</p>
++            <p>状态: {{ healthStatus.health }}</p>
++          </div>
++        </div>
++
++        <div v-else-if="error" class="space-y-2">
++          <div class="flex items-center justify-center gap-2 text-red-500">
++            <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
++              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
++            </svg>
++            <span class="font-semibold">连接失败</span>
++          </div>
++          <p class="text-sm text-red-400">{{ error }}</p>
++          <p class="text-xs text-gray-400 mt-2">请确保后端正在运行: uvicorn app.main:app --reload</p>
++        </div>
++      </div>
++
++      <p class="text-xs text-gray-400">
++        Vue 3 + Vite + TailwindCSS v4 | FastAPI + SQLite + LangGraph
++      </p>
++    </div>
++  </div>
++</template>
+diff --git a/frontend/src/main.ts b/frontend/src/main.ts
+new file mode 100644
+index 0000000..2425c0f
+--- /dev/null
++++ b/frontend/src/main.ts
+@@ -0,0 +1,5 @@
++import { createApp } from 'vue'
++import './style.css'
++import App from './App.vue'
++
++createApp(App).mount('#app')
+diff --git a/frontend/src/style.css b/frontend/src/style.css
+new file mode 100644
+index 0000000..b1cde63
+--- /dev/null
++++ b/frontend/src/style.css
+@@ -0,0 +1,21 @@
++@import "tailwindcss";
++
++/* ai-class 全局样式 */
++:root {
++  --ai-primary: #6366f1;
++  --ai-bg: #f9fafb;
++  --ai-text: #111827;
++}
++
++body {
++  margin: 0;
++  font-family: 'Inter', system-ui, -apple-system, sans-serif;
++  background: var(--ai-bg);
++  color: var(--ai-text);
++}
++
++#app {
++  max-width: 1200px;
++  margin: 0 auto;
++  padding: 2rem;
++}
+diff --git a/frontend/src/types/index.ts b/frontend/src/types/index.ts
+new file mode 100644
+index 0000000..2858bc5
+--- /dev/null
++++ b/frontend/src/types/index.ts
+@@ -0,0 +1,29 @@
++/** 知识树节点类型 - 与后端 schemas/knowledge_tree.py 严格对齐 */
++
++export interface KnowledgeNode {
++  node_id: string
++  label: string
++  parent_id: string | null
++  content_summary: string
++}
++
++export interface KnowledgeNodeInDB extends KnowledgeNode {
++  document_id: number
++  depth: number
++  chunk_text: string | null
++  created_at: string
++}
++
++export interface KnowledgeTree {
++  document_id: number
++  nodes: KnowledgeNode[]
++  total_nodes: number
++}
++
++/** 标准 API 响应信封 */
++export interface ApiEnvelope<T = unknown> {
++  status: 'success' | 'error'
++  data: T
++  message: string
++  trace_id: string
++}
+diff --git a/frontend/tsconfig.app.json b/frontend/tsconfig.app.json
+new file mode 100644
+index 0000000..8d16e42
+--- /dev/null
++++ b/frontend/tsconfig.app.json
+@@ -0,0 +1,16 @@
++{
++  "extends": "@vue/tsconfig/tsconfig.dom.json",
++  "compilerOptions": {
++    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.app.tsbuildinfo",
++    "types": ["vite/client"],
++
++    /* Linting */
++    "strict": true,
++    "noUnusedLocals": true,
++    "noUnusedParameters": true,
++    "erasableSyntaxOnly": true,
++    "noFallthroughCasesInSwitch": true,
++    "noUncheckedSideEffectImports": true
++  },
++  "include": ["src/**/*.ts", "src/**/*.tsx", "src/**/*.vue"]
++}
+diff --git a/frontend/tsconfig.json b/frontend/tsconfig.json
+new file mode 100644
+index 0000000..1ffef60
+--- /dev/null
++++ b/frontend/tsconfig.json
+@@ -0,0 +1,7 @@
++{
++  "files": [],
++  "references": [
++    { "path": "./tsconfig.app.json" },
++    { "path": "./tsconfig.node.json" }
++  ]
++}
+diff --git a/frontend/tsconfig.node.json b/frontend/tsconfig.node.json
+new file mode 100644
+index 0000000..8a67f62
+--- /dev/null
++++ b/frontend/tsconfig.node.json
+@@ -0,0 +1,26 @@
++{
++  "compilerOptions": {
++    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.node.tsbuildinfo",
++    "target": "ES2023",
++    "lib": ["ES2023"],
++    "module": "ESNext",
++    "types": ["node"],
++    "skipLibCheck": true,
++
++    /* Bundler mode */
++    "moduleResolution": "bundler",
++    "allowImportingTsExtensions": true,
++    "verbatimModuleSyntax": true,
++    "moduleDetection": "force",
++    "noEmit": true,
++
++    /* Linting */
++    "strict": true,
++    "noUnusedLocals": true,
++    "noUnusedParameters": true,
++    "erasableSyntaxOnly": true,
++    "noFallthroughCasesInSwitch": true,
++    "noUncheckedSideEffectImports": true
++  },
++  "include": ["vite.config.ts"]
++}
+diff --git a/frontend/vite.config.ts b/frontend/vite.config.ts
+new file mode 100644
+index 0000000..4f6a2e9
+--- /dev/null
++++ b/frontend/vite.config.ts
+@@ -0,0 +1,20 @@
++import { defineConfig } from 'vite'
++import vue from '@vitejs/plugin-vue'
++import tailwindcss from '@tailwindcss/vite'
++
++// https://vite.dev/config/
++export default defineConfig({
++  plugins: [
++    vue(),
++    tailwindcss(),
++  ],
++  server: {
++    proxy: {
++      // 开发环境代理后端 API 请求
++      '/api': {
++        target: 'http://localhost:8000',
++        changeOrigin: true,
++      },
++    },
++  },
++})
