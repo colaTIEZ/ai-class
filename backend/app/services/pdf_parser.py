@@ -3,10 +3,12 @@ import re
 import time
 import fitz
 import logging
+from fastapi import status
 from typing import Generator, List, Dict, Any
 from app.schemas.knowledge_tree import KnowledgeNodeInDB
 from langchain_openai import OpenAIEmbeddings
 from app.core.config import settings
+from app.core.exceptions import AppException
 
 logger = logging.getLogger(__name__)
 
@@ -14,7 +16,10 @@ def generate_embeddings(nodes: List[KnowledgeNodeInDB]) -> List[tuple[str, List[
     """Generate OpenAI embeddings for chunks."""
     if not settings.openai_api_key:
         logger.error("OpenAI API key configuration is missing.")
-        raise ValueError("OpenAI API key configuration is missing.")
+        raise AppException(
+            "OpenAI API key configuration is missing.",
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
         
     try:
         embeddings_model = OpenAIEmbeddings(

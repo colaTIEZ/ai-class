@@ -1,22 +1,7 @@
 import pytest
 import asyncio
-from httpx import AsyncClient, ASGITransport
-from app.main import app
-
-import pytest_asyncio
-
-@pytest_asyncio.fixture
-async def async_client():
-    async with ASGITransport(app=app) as transport:
-        async with AsyncClient(transport=transport, base_url="http://test") as client:
-            # the easiest way to trigger lifespan without extra deps in old httpx is calling init_db manually, actually or using httpx.ASGITransport's own lifespan mechanics?
-            # Wait, httpx AsyncClient handles lifespan. But just to be sure
-            from app.services.vector_store import init_db
-            init_db()
-            from app.services.processing_queue import processing_queue
-            processing_queue.start_worker()
-            yield client
-            await processing_queue.stop_worker()
+from app.core.config import settings
+from app.services.vector_store import get_connection
 
 @pytest.mark.asyncio
 async def test_single_upload_returns_202_and_format(async_client):
@@ -80,3 +65,66 @@ async def test_get_upload_status(async_client):
     assert data["data"]["job_id"] == job_id
     assert data["data"]["status"] in ["queued", "processing", "done"]
     assert data["data"]["position"] >= 0
+
+
+@pytest.mark.asyncio
+async def test_upload_magic_byte_validation(async_client):
+    file_content = b"NOTP" + b"A" * 512
+    files = {"file": ("fake.pdf", file_content, "application/pdf")}
+    response = await async_client.post("/api/v1/documents/upload", files=files)
+    assert response.status_code == 415
+    assert response.json()["message"] == "Invalid PDF file: magic bytes mismatch"
+
+
+@pytest.mark.asyncio
+async def test_start_worker_marks_zombie_queued_tasks_as_error(async_client):
+    conn = get_connection()
+    try:
+        conn.execute(
+            "INSERT OR REPLACE INTO document_tasks (job_id, file_path, status, updated_at) "
+            "VALUES (?, ?, 0, '2000-01-01 00:00:00')",
+            ("zombie-queued-job", "dummy.pdf"),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    old_timeout = settings.zombie_task_timeout_seconds
+    settings.zombie_task_timeout_seconds = 1
+    try:
+        from app.services.processing_queue import processing_queue
+        if processing_queue.worker_task and not processing_queue.worker_task.done():
+            processing_queue.worker_task.cancel()
+            await processing_queue.worker_task
+        while not processing_queue.queue.empty():
+            processing_queue.queue.get_nowait()
+            processing_queue.queue.task_done()
+        processing_queue.start_worker()
+    finally:
+        settings.zombie_task_timeout_seconds = old_timeout
+
+    conn = get_connection()
+    try:
+        row = conn.execute(
+            "SELECT status, error_message FROM document_tasks WHERE job_id = ?",
+            ("zombie-queued-job",),
+        ).fetchone()
+        assert row is not None
+        assert row["status"] == -1
+        assert row["error_message"] == "Process terminated unexpectedly"
+    finally:
+        conn.close()
+
+
+@pytest.mark.asyncio
+async def test_upload_returns_503_when_embedding_not_ready(async_client):
+    old_key = settings.openai_api_key
+    settings.openai_api_key = ""
+    try:
+        file_content = b"%PDF-1.4\n" + b"A" * 1024
+        files = {"file": ("test.pdf", file_content, "application/pdf")}
+        response = await async_client.post("/api/v1/documents/upload", files=files)
+        assert response.status_code == 503
+        assert "Embedding service unavailable" in response.json()["message"]
+    finally:
+        settings.openai_api_key = old_key

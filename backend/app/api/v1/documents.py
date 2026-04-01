@@ -1,7 +1,6 @@
 """文档操作路由 - 处理上传等"""
 
 import asyncio
-import os
 import uuid
 import logging
 from pathlib import Path
@@ -17,6 +16,14 @@ from app.services.vector_store import get_connection, get_document_nodes
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+def validate_pdf_magic_bytes(file: UploadFile) -> bool:
+    pos = file.file.tell()
+    file.file.seek(0)
+    signature = file.file.read(4)
+    file.file.seek(pos)
+    return signature == b"%PDF"
 
 def sync_save_file(temp_path: Path, content: bytes):
     """同步阻塞的写文件包装器，给 asyncio.to_thread 调度以释放事件循环"""
@@ -34,11 +41,23 @@ def sync_save_file(temp_path: Path, content: bytes):
 @router.post("/upload", status_code=status.HTTP_202_ACCEPTED, response_model=QueueResponse)
 async def upload_document(file: UploadFile = File(...)):
     """上传 PDF 并加入全局单例处理队列"""
+    if not settings.embedding_ready:
+        raise AppException(
+            message="Embedding service unavailable: missing OPENAI_API_KEY",
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
+
     # 限制 1：校验格式
     if file.content_type != "application/pdf":
         raise AppException(
             message="Only PDF files are allowed",
             status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE
+        )
+
+    if not validate_pdf_magic_bytes(file):
+        raise AppException(
+            message="Invalid PDF file: magic bytes mismatch",
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
         )
         
     # 限制 2：校验大小 (Seek 到结尾，获取位置，复位)
