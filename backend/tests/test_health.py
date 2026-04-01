@@ -22,6 +22,8 @@ def test_health_endpoint_standard_envelope(client):
     assert data["status"] == "success"
     assert data["data"]["service"] == "ai-class"
     assert data["data"]["health"] == "ok"
+    assert "embedding_ready" in data["data"]
+    assert isinstance(data["data"]["embedding_ready"], bool)
     assert data["message"] == ""
     assert data["trace_id"] == ""
 

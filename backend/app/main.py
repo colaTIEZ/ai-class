@@ -1,5 +1,6 @@
 """FastAPI 应用入口 - ai-class 后端服务"""
 
+import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -14,9 +15,15 @@ from app.api.v1.health import router as health_router
 from contextlib import asynccontextmanager
 from app.services.processing_queue import processing_queue
 
+logger = logging.getLogger(__name__)
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
+    if not settings.embedding_ready:
+        logger.critical(
+            "OPENAI_API_KEY is missing; embedding-related processing is unavailable."
+        )
     processing_queue.start_worker()
     yield
     # Shutdown
