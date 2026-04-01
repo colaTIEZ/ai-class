@@ -90,9 +90,29 @@ def init_db(conn: Optional[sqlite3.Connection] = None) -> sqlite3.Connection:
             job_id TEXT PRIMARY KEY,
             file_path TEXT NOT NULL,
             status INTEGER DEFAULT 0, -- 0: queued, 1: processing, 2: done, -1: error
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            error_message TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
     """)
+
+    # Backward-compatible migrations for existing DB files
+    columns = {
+        row["name"]
+        for row in conn.execute("PRAGMA table_info(document_tasks)").fetchall()
+    }
+    if "error_message" not in columns:
+        conn.execute("ALTER TABLE document_tasks ADD COLUMN error_message TEXT")
+    if "updated_at" not in columns:
+        conn.execute("ALTER TABLE document_tasks ADD COLUMN updated_at TIMESTAMP")
+        conn.execute(
+            "UPDATE document_tasks SET updated_at = CURRENT_TIMESTAMP WHERE updated_at IS NULL"
+        )
+
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_document_tasks_status_updated_at "
+        "ON document_tasks(status, updated_at)"
+    )
 
     # 向量嵌入虚拟表（使用 sqlite-vec）
     # 维度 1536 是 OpenAI text-embedding-3-small 的默认输出维度

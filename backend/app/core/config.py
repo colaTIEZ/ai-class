@@ -26,6 +26,7 @@ class Settings(BaseSettings):
     # 上传与队列配置 (2C2G Memory Protection)
     MAX_UPLOAD_SIZE: int = 10485760  # 10MB
     MAX_QUEUE_SIZE: int = 100
+    zombie_task_timeout_seconds: int = 300
 
     # 服务器配置
     host: str = "0.0.0.0"
@@ -39,6 +40,10 @@ class Settings(BaseSettings):
         "env_file_encoding": "utf-8",
         "extra": "ignore",
     }
+
+    @property
+    def embedding_ready(self) -> bool:
+        return bool((self.openai_api_key or "").strip())
 
 
 # 全局单例

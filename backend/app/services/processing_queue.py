@@ -2,8 +2,10 @@
 
 import asyncio
 import logging
-from typing import Optional, Dict, Tuple
+from datetime import datetime, timedelta, timezone
+from typing import Optional, Tuple
 from app.services.vector_store import get_connection
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +51,7 @@ class ProcessingQueue:
             conn = get_connection()
             try:
                 conn.execute(
-                    "INSERT INTO document_tasks (job_id, file_path, status) VALUES (?, ?, 0)",
+                    "INSERT INTO document_tasks (job_id, file_path, status, error_message) VALUES (?, ?, 0, NULL)",
                     (job_id, file_path)
                 )
                 conn.commit()
@@ -91,10 +93,13 @@ class ProcessingQueue:
         """异步工人循环"""
         logger.info("Processing worker started - max singleton limit 1")
         
-        def _update_status(j_id: str, new_status: int):
+        def _update_status(j_id: str, new_status: int, error_message: Optional[str] = None):
             conn = get_connection()
             try:
-                conn.execute("UPDATE document_tasks SET status = ? WHERE job_id = ?", (new_status, j_id))
+                conn.execute(
+                    "UPDATE document_tasks SET status = ?, error_message = ?, updated_at = CURRENT_TIMESTAMP WHERE job_id = ?",
+                    (new_status, error_message, j_id),
+                )
                 conn.commit()
             finally:
                 conn.close()
@@ -108,7 +113,7 @@ class ProcessingQueue:
                 
                 # Real Document Processing logic starts here
                 from app.services.pdf_parser import process_pdf_generator, extract_hierarchy, generate_embeddings
-                from app.services.vector_store import insert_document_nodes, insert_embeddings, get_connection
+                from app.services.vector_store import insert_document_nodes, insert_embeddings
                 
                 def _process_file(j_id):
                     # Fetch file_path
@@ -157,18 +162,68 @@ class ProcessingQueue:
                 # Catching BaseException as requested by patch finding
                 logger.error(f"Error processing job {job_id}: {e}")
                 try:
-                    await asyncio.to_thread(_update_status, job_id, -1) # error
+                    await asyncio.to_thread(
+                        _update_status,
+                        job_id,
+                        -1,
+                        "Processing failed",
+                    ) # error
                     self.queue.task_done()
                 except Exception as inner_e:
                     logger.error(f"Failed to update error status for {job_id}: {inner_e}")
 
     def start_worker(self):
         """如果不存在就启动工作循环，并处理残留任务"""
+        def _recover_zombie_tasks():
+            conn = get_connection()
+            try:
+                threshold = datetime.now(timezone.utc) - timedelta(
+                    seconds=settings.zombie_task_timeout_seconds
+                )
+                threshold_str = threshold.strftime("%Y-%m-%d %H:%M:%S")
+                zombie_rows = conn.execute(
+                    "SELECT job_id FROM document_tasks "
+                    "WHERE status = 0 AND updated_at IS NOT NULL AND updated_at < ?",
+                    (threshold_str,),
+                ).fetchall()
+
+                for row in zombie_rows:
+                    conn.execute(
+                        "UPDATE document_tasks "
+                        "SET status = -1, "
+                        "error_message = ?, "
+                        "updated_at = CURRENT_TIMESTAMP "
+                        "WHERE job_id = ?",
+                        ("Process terminated unexpectedly", row["job_id"]),
+                    )
+                    logger.warning(
+                        "Recovered zombie task job_id=%s (set to error)",
+                        row["job_id"],
+                    )
+                conn.commit()
+            except Exception as e:
+                logger.error(f"Error recovering zombie tasks: {e}")
+            finally:
+                conn.close()
+
         def _recover_tasks():
             conn = get_connection()
             try:
-                # Reset interrupted processing tasks to queued
-                conn.execute("UPDATE document_tasks SET status = 0 WHERE status = 1")
+                # Mark interrupted processing tasks as error; they are not safe to resume blindly
+                interrupted_rows = conn.execute(
+                    "SELECT job_id FROM document_tasks WHERE status = 1"
+                ).fetchall()
+                for row in interrupted_rows:
+                    conn.execute(
+                        "UPDATE document_tasks "
+                        "SET status = -1, error_message = ?, updated_at = CURRENT_TIMESTAMP "
+                        "WHERE job_id = ?",
+                        ("Process terminated unexpectedly", row["job_id"]),
+                    )
+                    logger.warning(
+                        "Recovered interrupted task job_id=%s (set to error)",
+                        row["job_id"],
+                    )
                 conn.commit()
                 # Get all queued tasks ordered by creation time
                 rows = conn.execute("SELECT job_id FROM document_tasks WHERE status = 0 ORDER BY created_at ASC").fetchall()
@@ -184,6 +239,7 @@ class ProcessingQueue:
         init_db()
 
         if self.worker_task is None or self.worker_task.done():
+            _recover_zombie_tasks()
             _recover_tasks()
             self.worker_task = asyncio.create_task(self._worker())
 
