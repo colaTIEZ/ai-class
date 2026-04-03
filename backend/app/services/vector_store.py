@@ -291,3 +291,68 @@ def retrieve_by_nodes(
     finally:
         if should_close:
             conn.close()
+
+
+def retrieve_by_nodes_semantic(
+    node_ids: list[str],
+    query_embedding: list[float],
+    top_k: int = 5,
+    conn: sqlite3.Connection | None = None
+) -> list[dict]:
+    """按选中节点边界做向量相似度检索。
+
+    说明：
+    - 先做层级展开，限定 node_id 范围；
+    - 再在 vec_embeddings 中按距离排序；
+    - 最后联表返回 chunk_text。
+    """
+    import json
+
+    if not node_ids:
+        return []
+    if not query_embedding:
+        return []
+
+    should_close = False
+    if conn is None:
+        conn = get_connection()
+        should_close = True
+
+    try:
+        expanded_node_ids = get_descendant_node_ids(conn, node_ids)
+        if not expanded_node_ids:
+            return []
+
+        placeholders = ", ".join("?" * len(expanded_node_ids))
+        query = f"""
+            SELECT
+                kn.node_id,
+                kn.chunk_text,
+                kn.label,
+                kn.depth,
+                ve.distance AS score
+            FROM vec_embeddings ve
+            JOIN knowledge_nodes kn ON kn.node_id = ve.node_id
+            WHERE kn.node_id IN ({placeholders})
+              AND kn.chunk_text IS NOT NULL
+              AND kn.chunk_text != ''
+              AND ve.embedding MATCH cast(? as float[1536])
+            ORDER BY ve.distance ASC
+            LIMIT ?
+        """
+        params = expanded_node_ids + [json.dumps(query_embedding), top_k]
+        rows = conn.execute(query, params).fetchall()
+
+        return [
+            {
+                "node_id": row["node_id"],
+                "chunk_text": row["chunk_text"],
+                "label": row["label"],
+                "depth": row["depth"],
+                "score": float(row["score"]) if row["score"] is not None else None,
+            }
+            for row in rows
+        ]
+    finally:
+        if should_close:
+            conn.close()

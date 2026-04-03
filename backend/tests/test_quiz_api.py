@@ -126,7 +126,7 @@ class TestQuizInitEndpoint:
         )
         
         assert response.status_code == 500
-        data = response.json()["detail"]
+        data = response.json()
         assert data["status"] == "error"
         assert "No relevant content" in data["message"]
     
@@ -141,7 +141,7 @@ class TestQuizInitEndpoint:
         )
         
         assert response.status_code == 500
-        data = response.json()["detail"]
+        data = response.json()
         assert data["status"] == "error"
         assert "LLM API timeout" in data["message"]
     
@@ -167,7 +167,7 @@ class TestQuizInitEndpoint:
         )
         
         assert response.status_code == 500
-        data = response.json()["detail"]
+        data = response.json()
         assert "Failed to generate" in data["message"]
     
     @patch("app.api.v1.chat.invoke_quiz_generation")

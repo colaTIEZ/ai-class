@@ -35,7 +35,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: 2026-03-31T11:55:58+08:00
-last_updated: 2026-04-03T19:54:00+08:00
+last_updated: 2026-04-03T22:17:10+08:00
 project: ai-class
 project_key: NOKEY
 tracking_system: file-system
@@ -50,7 +50,7 @@ development_status:
   1-5-epic1-hotfix-zombie-tasks-security: done
   epic-1-retrospective: done
   epic-2: in-progress
-  2-1-bounded-question-generation: review
+  2-1-bounded-question-generation: done
   2-2-langgraph-routing-socratic-sse-stream: backlog
   2-3-context-guardrails-escape-hatch: backlog
   2-4-transient-developer-trace-observer: backlog

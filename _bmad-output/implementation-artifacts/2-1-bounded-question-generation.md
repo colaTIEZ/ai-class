@@ -1,6 +1,6 @@
 # Story 2.1: Bounded Question Generation
 
-Status: review
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -50,6 +50,15 @@ so that I am tested only on the material I am currently trying to master.
   - [x] Update "Start Quiz" button handler in knowledge graph view to call API with selected nodes
   - [x] Create basic `frontend/src/views/QuizView.vue` to display generated question
   - [x] Write component tests for quiz initialization flow
+
+### Review Findings
+
+- [x] [Review][Patch] Missing quiz init endpoint implementation in reviewed diff [backend/app/api/v1/chat.py:1] — dismissed as noise after full-file verification (endpoint exists)
+- [x] [Review][Patch] Missing LangGraph state/orchestrator/node implementation in reviewed diff [backend/app/graph/__init__.py:1] — dismissed as noise after full-file verification (implementation files exist)
+- [x] [Review][Patch] Missing frontend quiz API integration in reviewed diff [frontend/src/api/client.ts:1] — dismissed as noise after full-file verification (`frontend/src/api/quiz.ts` implemented)
+- [x] [Review][Patch] Missing quiz store and quiz view artifacts in reviewed diff [frontend/src:1] — dismissed as noise after full-file verification (`frontend/src/stores/quiz.ts`, `frontend/src/views/QuizView.vue` implemented)
+- [x] [Review][Patch] Retrieval logic lacks embedding similarity ranking despite sqlite-vec setup [backend/app/services/vector_store.py:223] — fixed by adding `retrieve_by_nodes_semantic`
+- [x] [Review][Patch] API error envelope consistency risk (`HTTPException.detail` shape may diverge from success schema) [backend/app/api/v1/chat.py:59] — fixed by standardizing error envelope response body
 
 ## Dev Notes
 
