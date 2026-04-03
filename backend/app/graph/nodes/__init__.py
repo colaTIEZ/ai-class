@@ -1,1 +1,6 @@
-# LangGraph 图节点包（将在 Epic 2 中实现）
+"""LangGraph 图节点包"""
+
+from app.graph.nodes.retrieve import retrieve_node
+from app.graph.nodes.question_gen import question_gen_node
+
+__all__ = ["retrieve_node", "question_gen_node"]

@@ -182,3 +182,112 @@ def get_document_nodes(conn: sqlite3.Connection, document_id: int) -> list[sqlit
         (document_id,)
     )
     return cursor.fetchall()
+
+
+def get_descendant_node_ids(conn: sqlite3.Connection, node_ids: list[str]) -> list[str]:
+    """获取给定节点及其所有后代节点的 ID
+    
+    实现层级展开逻辑：选择父节点时包含所有子节点。
+    
+    Args:
+        conn: SQLite 连接
+        node_ids: 初始选择的节点 ID 列表
+        
+    Returns:
+        包含所有后代节点的 ID 列表（包括原始节点）
+    """
+    if not node_ids:
+        return []
+    
+    # 使用递归 CTE 获取所有后代节点
+    placeholders = ", ".join("?" * len(node_ids))
+    query = f"""
+        WITH RECURSIVE descendants AS (
+            -- 基础：选中的节点
+            SELECT node_id FROM knowledge_nodes WHERE node_id IN ({placeholders})
+            
+            UNION ALL
+            
+            -- 递归：子节点
+            SELECT kn.node_id
+            FROM knowledge_nodes kn
+            INNER JOIN descendants d ON kn.parent_id = d.node_id
+        )
+        SELECT DISTINCT node_id FROM descendants
+    """
+    
+    cursor = conn.execute(query, node_ids)
+    return [row[0] for row in cursor.fetchall()]
+
+
+def retrieve_by_nodes(
+    node_ids: list[str],
+    top_k: int = 5,
+    conn: sqlite3.Connection | None = None
+) -> list[dict]:
+    """根据节点 ID 列表检索相关文本块
+    
+    实现上下文边界 RAG 检索：
+    1. 展开选定节点到所有后代节点
+    2. 获取这些节点的 chunk_text
+    3. 返回相关内容（按节点深度排序）
+    
+    Args:
+        node_ids: 用户选择的知识节点 ID 列表
+        top_k: 返回的最大 chunk 数量（默认 5，内存安全）
+        conn: 可选的数据库连接
+        
+    Returns:
+        检索到的文本块列表，每项包含:
+        - node_id: 节点 ID
+        - chunk_text: 文本内容
+        - label: 节点标签
+        - depth: 节点深度
+        - score: 相关性分数（当前为基于深度的排序分数）
+    """
+    if not node_ids:
+        return []
+    
+    should_close = False
+    if conn is None:
+        conn = get_connection()
+        should_close = True
+    
+    try:
+        # 1. 展开到所有后代节点
+        expanded_node_ids = get_descendant_node_ids(conn, node_ids)
+        
+        if not expanded_node_ids:
+            return []
+        
+        # 2. 查询节点的 chunk_text
+        placeholders = ", ".join("?" * len(expanded_node_ids))
+        query = f"""
+            SELECT node_id, chunk_text, label, depth
+            FROM knowledge_nodes
+            WHERE node_id IN ({placeholders})
+            AND chunk_text IS NOT NULL
+            AND chunk_text != ''
+            ORDER BY depth ASC, node_id ASC
+            LIMIT ?
+        """
+        
+        cursor = conn.execute(query, expanded_node_ids + [top_k])
+        rows = cursor.fetchall()
+        
+        # 3. 构建返回结果
+        results = []
+        for i, row in enumerate(rows):
+            results.append({
+                "node_id": row["node_id"],
+                "chunk_text": row["chunk_text"],
+                "label": row["label"],
+                "depth": row["depth"],
+                "score": 1.0 - (i * 0.1)  # 简单的排序分数
+            })
+        
+        return results
+        
+    finally:
+        if should_close:
+            conn.close()
