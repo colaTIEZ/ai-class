@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
-import { initQuiz, type QuestionData } from '../api/quiz';
+import { initQuiz, submitAnswerStream, type QuestionData, type StreamEvent } from '../api/quiz';
 
 export const useQuizStore = defineStore('quiz', () => {
   // 节点选择状态
@@ -13,6 +13,11 @@ export const useQuizStore = defineStore('quiz', () => {
   const isLoading = ref(false);
   const error = ref<string | null>(null);
   const traceId = ref<string | null>(null);
+  const currentHint = ref<string | null>(null);
+  const isStreaming = ref(false);
+  const traceLog = ref<Array<Record<string, unknown>>>([]);
+  const currentAnswer = ref('');
+  const activeStreamRequestId = ref(0);
 
   // 计算属性
   const selectedNodeIdsArray = computed(() => Array.from(selectedNodeIds.value));
@@ -63,6 +68,9 @@ export const useQuizStore = defineStore('quiz', () => {
         currentQuestion.value = response.data.question;
         questionType.value = response.data.question_type;
         traceId.value = response.trace_id;
+        currentHint.value = null;
+        currentAnswer.value = '';
+        traceLog.value = [];
       } else {
         error.value = response.message || 'Failed to generate question';
       }
@@ -70,6 +78,53 @@ export const useQuizStore = defineStore('quiz', () => {
       error.value = e instanceof Error ? e.message : 'An error occurred';
     } finally {
       isLoading.value = false;
+    }
+  }
+
+  async function submitAnswer() {
+    if (!currentQuestion.value) {
+      error.value = 'No active question';
+      return;
+    }
+    if (!currentAnswer.value.trim()) {
+      error.value = 'Please input your answer';
+      return;
+    }
+
+    isStreaming.value = true;
+    error.value = null;
+    currentHint.value = null;
+    traceLog.value = [];
+    const requestId = activeStreamRequestId.value + 1;
+    activeStreamRequestId.value = requestId;
+
+    try {
+      await submitAnswerStream(
+        {
+          selected_node_ids: selectedNodeIdsArray.value,
+          question_type: questionType.value,
+          current_question: currentQuestion.value,
+          current_answer: currentAnswer.value,
+        },
+        (event: StreamEvent) => {
+          if (activeStreamRequestId.value !== requestId) {
+            return;
+          }
+          traceId.value = event.trace_id || traceId.value;
+          if (event.type === 'content') {
+            const text = String(event.data?.text ?? '');
+            currentHint.value = text;
+          } else if (event.type === 'trace') {
+            traceLog.value.push(event.data);
+          } else if (event.type === 'error') {
+            error.value = String(event.data?.message ?? 'Unable to generate hint');
+          }
+        }
+      );
+    } catch (e) {
+      error.value = e instanceof Error ? e.message : 'An error occurred';
+    } finally {
+      isStreaming.value = false;
     }
   }
 
@@ -81,6 +136,11 @@ export const useQuizStore = defineStore('quiz', () => {
     error.value = null;
     traceId.value = null;
     isLoading.value = false;
+    currentHint.value = null;
+    isStreaming.value = false;
+    traceLog.value = [];
+    currentAnswer.value = '';
+    activeStreamRequestId.value += 1;
   }
 
   return {
@@ -98,8 +158,13 @@ export const useQuizStore = defineStore('quiz', () => {
     isLoading,
     error,
     traceId,
+    currentHint,
+    isStreaming,
+    traceLog,
+    currentAnswer,
     hasQuestion,
     startQuiz,
+    submitAnswer,
     resetQuiz,
   };
 });

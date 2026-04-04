@@ -50,3 +50,12 @@ class ErrorResponse(BaseModel):
     data: None = None
     message: str
     trace_id: Optional[str] = None
+
+
+class AnswerSubmitRequest(BaseModel):
+    """答题提交请求"""
+
+    selected_node_ids: list[str] = Field(..., min_length=1)
+    question_type: Literal["multiple_choice", "short_answer"] = "multiple_choice"
+    current_question: QuestionData
+    current_answer: str = Field(..., min_length=1)

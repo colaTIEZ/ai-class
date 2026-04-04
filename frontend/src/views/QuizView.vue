@@ -58,6 +58,8 @@
             v-for="(option, index) in quizStore.currentQuestion.options"
             :key="index"
             class="p-4 border rounded-lg hover:bg-gray-50 cursor-pointer transition-colors"
+            :class="quizStore.currentAnswer === option ? 'bg-indigo-50 border-indigo-300' : ''"
+            @click="quizStore.currentAnswer = option"
           >
             <span class="font-medium mr-2">{{ String.fromCharCode(65 + index) }}.</span>
             {{ option }}
@@ -67,11 +69,40 @@
         <!-- 简答题输入框 -->
         <div v-else-if="quizStore.questionType === 'short_answer'" class="mt-4">
           <textarea
+            v-model="quizStore.currentAnswer"
             class="w-full p-4 border rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
             rows="4"
             placeholder="Type your answer here..."
           ></textarea>
         </div>
+        <div v-else class="mt-4">
+          <textarea
+            v-model="quizStore.currentAnswer"
+            class="w-full p-4 border rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+            rows="3"
+            placeholder="Type your answer here..."
+          ></textarea>
+        </div>
+
+        <div class="mt-4 flex gap-2">
+          <button
+            @click="quizStore.submitAnswer()"
+            :disabled="quizStore.isStreaming"
+            class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-60"
+          >
+            {{ quizStore.isStreaming ? 'Thinking...' : 'Submit Answer' }}
+          </button>
+        </div>
+
+        <div v-if="quizStore.currentHint" class="mt-4 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+          <p class="text-sm font-semibold text-yellow-800 mb-1">Socratic Hint</p>
+          <p class="text-yellow-900">{{ quizStore.currentHint }}</p>
+        </div>
+
+        <details v-if="quizStore.traceLog.length" class="mt-4">
+          <summary class="cursor-pointer text-sm text-gray-600">Trace Log</summary>
+          <pre class="mt-2 p-3 text-xs bg-gray-50 border rounded overflow-auto max-h-56">{{ quizStore.traceLog }}</pre>
+        </details>
       </div>
 
       <!-- 操作按钮 -->
