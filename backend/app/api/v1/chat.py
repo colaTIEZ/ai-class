@@ -3,21 +3,25 @@
 实现 Quiz 初始化 API，触发 LangGraph 编排的问题生成流程。
 """
 
-import uuid
+import json
 import logging
+import uuid
+from datetime import datetime
+from time import perf_counter
 from typing import Any
 
 from fastapi import APIRouter
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 
 from app.schemas.quiz import (
     QuizInitRequest,
     QuizInitResponse,
     QuizInitResponseData,
     QuestionData,
-    ErrorResponse
+    ErrorResponse,
+    AnswerSubmitRequest,
 )
-from app.graph.orchestrator import invoke_quiz_generation
+from app.graph.orchestrator import invoke_quiz_generation, invoke_answer_feedback
 
 logger = logging.getLogger(__name__)
 
@@ -118,3 +122,130 @@ async def init_quiz(request: QuizInitRequest) -> QuizInitResponse:
     except Exception as e:
         logger.exception(f"Quiz generation failed: {e}")
         return _error_response(500, f"Internal server error: {str(e)}", trace_id)
+
+
+def _sse_data(payload: dict[str, Any]) -> str:
+    return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+
+@router.post(
+    "/chat/message",
+    summary="提交答案并流式返回苏格拉底提示",
+    description="验证学生答案并通过 SSE 返回 content/trace/error 事件",
+)
+async def submit_answer_stream(request: AnswerSubmitRequest) -> StreamingResponse:
+    trace_id = str(uuid.uuid4())
+
+    async def event_generator():
+        started = perf_counter()
+        try:
+            result = invoke_answer_feedback(
+                thread_id=trace_id,
+                selected_node_ids=request.selected_node_ids,
+                question_type=request.question_type,
+                current_answer=request.current_answer,
+                current_question=request.current_question.model_dump(),
+            )
+            state = result["state"]
+            validation = state.get("validation_result") or {}
+            hint = state.get("current_hint")
+            trace_log = []
+            trace_log.extend(state.get("trace_log", []))
+            trace_log.extend(validation.get("trace_log", []))
+            seen_trace_keys: set[str] = set()
+            for entry in trace_log:
+                if not isinstance(entry, dict):
+                    continue
+                node_name = str(entry.get("node", "unknown"))
+                metadata = entry.get("metadata", {})
+                dedupe_key = f"{node_name}|{json.dumps(metadata, sort_keys=True, ensure_ascii=False)}"
+                if dedupe_key in seen_trace_keys:
+                    continue
+                seen_trace_keys.add(dedupe_key)
+                yield _sse_data(
+                    {
+                        "type": "trace",
+                        "data": {
+                            "node_name": node_name,
+                            "metadata": metadata if isinstance(metadata, dict) else {},
+                        },
+                        "trace_id": trace_id,
+                        "timestamp": datetime.utcnow().isoformat() + "Z",
+                    }
+                )
+
+            if state.get("error_message"):
+                yield _sse_data(
+                    {
+                        "type": "error",
+                        "data": {"message": state["error_message"], "code": "VALIDATION_ERROR"},
+                        "trace_id": trace_id,
+                        "timestamp": datetime.utcnow().isoformat() + "Z",
+                    }
+                )
+                return
+
+            if isinstance(hint, str) and hint.strip():
+                yield _sse_data(
+                    {
+                        "type": "content",
+                        "data": {
+                            "text": hint,
+                            "hint_type": "leading_question",
+                        },
+                        "trace_id": trace_id,
+                        "timestamp": datetime.utcnow().isoformat() + "Z",
+                    }
+                )
+            elif validation.get("is_correct") is False:
+                yield _sse_data(
+                    {
+                        "type": "content",
+                        "data": {
+                            "text": "Your answer is not quite there yet. Try focusing on the core concept again.",
+                            "hint_type": "leading_question",
+                        },
+                        "trace_id": trace_id,
+                        "timestamp": datetime.utcnow().isoformat() + "Z",
+                    }
+                )
+            else:
+                if validation.get("is_correct") is True:
+                    yield _sse_data(
+                        {
+                            "type": "content",
+                            "data": {"text": "Great job! Your answer is correct.", "hint_type": "check_understanding"},
+                            "trace_id": trace_id,
+                            "timestamp": datetime.utcnow().isoformat() + "Z",
+                        }
+                    )
+            first_byte_latency_ms = int((perf_counter() - started) * 1000)
+            yield _sse_data(
+                {
+                    "type": "trace",
+                    "data": {
+                        "node_name": "sse",
+                        "metadata": {
+                            "first_byte_latency_ms": first_byte_latency_ms,
+                        },
+                    },
+                    "trace_id": trace_id,
+                    "timestamp": datetime.utcnow().isoformat() + "Z",
+                }
+            )
+        except Exception as e:
+            logger.exception("submit_answer_stream failed: %s", e)
+            yield _sse_data(
+                {
+                    "type": "error",
+                    "data": {"message": "Unable to generate hint, please retry.", "code": "INTERNAL_ERROR"},
+                    "trace_id": trace_id,
+                    "timestamp": datetime.utcnow().isoformat() + "Z",
+                }
+            )
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
+    )

@@ -28,6 +28,11 @@ class TestSocraticStateSchema:
             "retrieved_chunks",
             "current_question",
             "question_type",
+            "current_answer",
+            "validation_result",
+            "error_type",
+            "current_hint",
+            "conversation_history",
             "trace_log",
             "error_message"
         ]
@@ -120,13 +125,17 @@ class TestOrchestratorSchema:
         """验证 orchestrator 模块可正常导入"""
         from app.graph.orchestrator import (
             build_quiz_graph,
+            build_answer_feedback_graph,
             compile_graph,
             invoke_quiz_generation,
+            invoke_answer_feedback,
             create_checkpointer
         )
         assert build_quiz_graph is not None
+        assert build_answer_feedback_graph is not None
         assert compile_graph is not None
         assert invoke_quiz_generation is not None
+        assert invoke_answer_feedback is not None
 
     def test_build_quiz_graph(self):
         """验证 StateGraph 构建正确"""
@@ -141,6 +150,22 @@ class TestOrchestratorSchema:
         assert "retrieve" in workflow.nodes
         assert "question_gen" in workflow.nodes
 
+    def test_build_answer_feedback_graph(self):
+        """验证答题反馈图构建正确"""
+        from app.graph.orchestrator import build_answer_feedback_graph
+
+        workflow = build_answer_feedback_graph()
+        assert workflow is not None
+        assert "validate" in workflow.nodes
+        assert "socratic_hint" in workflow.nodes
+
+    def test_route_on_validation(self):
+        from langgraph.graph import END
+        from app.graph.orchestrator import route_on_validation
+
+        assert route_on_validation({"validation_result": {"is_correct": True, "error_type": "no_error"}}) == END
+        assert route_on_validation({"validation_result": {"is_correct": False, "error_type": "conceptual"}}) == "socratic_hint"
+
     def test_checkpointer_path(self):
         """验证 checkpointer 路径生成正确"""
         from app.graph.orchestrator import get_checkpointer_path
@@ -154,9 +179,11 @@ class TestGraphNodesImport:
 
     def test_nodes_package_import(self):
         """验证 nodes 包可正常导入"""
-        from app.graph.nodes import retrieve_node, question_gen_node
+        from app.graph.nodes import retrieve_node, question_gen_node, validate_answer_node, generate_hint_node
         assert retrieve_node is not None
         assert question_gen_node is not None
+        assert validate_answer_node is not None
+        assert generate_hint_node is not None
 
     def test_retrieve_node_signature(self):
         """验证 retrieve_node 函数签名正确"""

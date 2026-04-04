@@ -5,10 +5,9 @@
 """
 
 import sqlite3
-from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, Generator
+from typing import Optional
 
 from langgraph.graph import StateGraph, START, END
 from langgraph.checkpoint.sqlite import SqliteSaver
@@ -17,6 +16,12 @@ from app.core.config import settings
 from app.graph.state import SocraticState
 from app.graph.nodes.retrieve import retrieve_node
 from app.graph.nodes.question_gen import question_gen_node
+from app.graph.nodes.validate import validate_answer_node
+from app.graph.nodes.hint import generate_hint_node
+from app.graph.nodes.llm_runtime import truncate_tokens
+
+MAX_HISTORY_MESSAGES = 20
+MAX_ANSWER_TOKENS = 300
 
 
 def get_checkpointer_path() -> str:
@@ -76,6 +81,27 @@ def build_quiz_graph() -> StateGraph:
     return workflow
 
 
+def build_answer_feedback_graph() -> StateGraph:
+    """构建答题反馈图：validate -> (socratic_hint | END)。"""
+    workflow = StateGraph(SocraticState)
+    workflow.add_node("validate", validate_answer_node)
+    workflow.add_node("socratic_hint", generate_hint_node)
+
+    workflow.add_edge(START, "validate")
+    workflow.add_conditional_edges("validate", route_on_validation)
+    workflow.add_edge("socratic_hint", END)
+    return workflow
+
+
+def route_on_validation(state: SocraticState) -> str:
+    validation = state.get("validation_result") or {}
+    is_correct = validation.get("is_correct") is True
+    error_type = str(validation.get("error_type", ""))
+    if is_correct or error_type == "no_error":
+        return END
+    return "socratic_hint"
+
+
 def compile_graph(checkpointer: Optional[SqliteSaver] = None) -> StateGraph:
     """编译 StateGraph 并绑定 checkpointer
 
@@ -131,13 +157,68 @@ def invoke_quiz_generation(
         "error_message": None
     }
     
-    # 编译并执行 graph
-    graph = compile_graph()
-    config = {"configurable": {"thread_id": thread_id}}
-    
-    result = graph.invoke(initial_state, config)
+    with create_connection() as conn:
+        checkpointer = create_checkpointer(conn)
+        graph = compile_graph(checkpointer)
+        config = {"configurable": {"thread_id": thread_id}}
+        result = graph.invoke(initial_state, config)
     
     return {
         "state": result,
         "thread_id": thread_id
     }
+
+
+def invoke_answer_feedback(
+    *,
+    thread_id: str,
+    selected_node_ids: list[str],
+    question_type: str,
+    current_answer: str,
+    current_question: dict,
+) -> dict:
+    """执行答题反馈流程（验证+路由+提示）。"""
+    answer_text = truncate_tokens(current_answer or "", MAX_ANSWER_TOKENS).strip()
+    conversation_history = [
+        {
+            "role": "student",
+            "content": answer_text,
+            "timestamp": datetime.utcnow().isoformat() + "Z",
+        }
+    ][-MAX_HISTORY_MESSAGES:]
+    initial_state: SocraticState = {
+        "selected_node_ids": selected_node_ids,
+        "retrieved_chunks": [],
+        "current_question": current_question,
+        "question_type": question_type,
+        "current_answer": answer_text,
+        "validation_result": None,
+        "error_type": None,
+        "current_hint": None,
+        "conversation_history": conversation_history,
+        "trace_log": [{
+            "node": "init_answer_feedback",
+            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "metadata": {
+                "thread_id": thread_id,
+                "question_type": question_type,
+                "answer_truncated": answer_text != (current_answer or "").strip(),
+            }
+        }],
+        "error_message": None,
+    }
+    with create_connection() as conn:
+        workflow = build_answer_feedback_graph()
+        checkpointer = create_checkpointer(conn)
+        graph = workflow.compile(checkpointer=checkpointer)
+        config = {"configurable": {"thread_id": thread_id}}
+        state = graph.invoke(initial_state, config)
+    trace_log = list(state.get("trace_log", []))
+    state["trace_log"] = trace_log[-MAX_HISTORY_MESSAGES:]
+    history = list(state.get("conversation_history", []))
+    state["conversation_history"] = history[-MAX_HISTORY_MESSAGES:]
+    validation = state.get("validation_result")
+    if isinstance(validation, dict):
+        validation["trace_log"] = list(validation.get("trace_log", []))[-MAX_HISTORY_MESSAGES:]
+        state["validation_result"] = validation
+    return {"state": state, "thread_id": thread_id}
