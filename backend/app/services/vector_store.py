@@ -126,6 +126,10 @@ def init_db(conn: Optional[sqlite3.Connection] = None) -> sqlite3.Connection:
         );
     """)
 
+    from app.services.review_service import init_review_tables
+
+    init_review_tables(conn)
+
     # 向量嵌入虚拟表（使用 sqlite-vec）
     # 维度 1536 是 OpenAI text-embedding-3-small 的默认输出维度
     conn.execute("""

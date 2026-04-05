@@ -4,13 +4,14 @@
 """
 
 import json
+import hashlib
 import logging
 import uuid
 from datetime import datetime
 from time import perf_counter
 from typing import Any
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Header
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from app.schemas.quiz import (
@@ -27,6 +28,7 @@ from app.graph.orchestrator import (
     create_connection,
     invoke_quiz_generation,
 )
+from app.services.review_service import record_answer
 from app.services.vector_store import mark_node_needs_review
 
 logger = logging.getLogger(__name__)
@@ -44,6 +46,14 @@ def _error_response(status_code: int, message: str, trace_id: str) -> JSONRespon
             "trace_id": trace_id,
         },
     )
+
+
+def _derive_question_id(node_id: str, question_text: str) -> str:
+    """Derive a stable question ID from node and normalized prompt text."""
+
+    normalized = f"{node_id.strip()}|{question_text.strip()}".encode("utf-8")
+    digest = hashlib.sha256(normalized).hexdigest()[:24]
+    return f"q_{digest}"
 
 
 @router.post(
@@ -171,7 +181,10 @@ def _extract_trace_entry(node_update: Any) -> dict[str, Any] | None:
     summary="提交答案并流式返回苏格拉底提示",
     description="验证学生答案并通过 SSE 返回 content/trace/error 事件",
 )
-async def submit_answer_stream(request: AnswerSubmitRequest) -> StreamingResponse:
+async def submit_answer_stream(
+    request: AnswerSubmitRequest,
+    x_user_id: str | None = Header(default=None, alias="X-User-ID"),
+) -> StreamingResponse:
     trace_id = str(uuid.uuid4())
 
     async def event_generator():
@@ -290,6 +303,45 @@ async def submit_answer_stream(request: AnswerSubmitRequest) -> StreamingRespons
                         }
                     )
                     return
+
+                node_id = request.current_node_id or request.current_question.current_node_id
+                validation_is_correct = bool(validation.get("is_correct"))
+                if node_id:
+                    question_id = _derive_question_id(node_id, request.current_question.question_text)
+                    try:
+                        record_answer(
+                            user_id=(x_user_id or "anonymous").strip() or "anonymous",
+                            node_id=node_id,
+                            question_text=request.current_question.question_text,
+                            user_answer=request.current_answer,
+                            correct_answer=request.current_question.correct_answer,
+                            is_correct=validation_is_correct,
+                            error_type=str(
+                                validation.get("error_type")
+                                or ("no_error" if validation_is_correct else "incomplete")
+                            ),
+                            error_severity=int(validation.get("severity") or 1),
+                            question_type=request.question_type,
+                            question_id=question_id,
+                            attempt_id=trace_id,
+                            selected_node_ids=request.selected_node_ids,
+                        )
+                    except Exception as exc:  # pragma: no cover - defensive persistence guard
+                        logger.exception("Failed to persist answer attempt: %s", exc)
+                        yield _sse_data(
+                            {
+                                "type": "trace",
+                                "data": {
+                                    "node_name": "review_persistence",
+                                    "metadata": {
+                                        "persisted": False,
+                                        "reason": "record_answer_failed",
+                                    },
+                                },
+                                "trace_id": trace_id,
+                                "timestamp": datetime.utcnow().isoformat() + "Z",
+                            }
+                        )
 
                 if isinstance(hint, str) and hint.strip():
                     yield _sse_data(

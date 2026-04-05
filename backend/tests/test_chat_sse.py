@@ -3,6 +3,7 @@
 import json
 import tracemalloc
 from concurrent.futures import ThreadPoolExecutor
+from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -182,3 +183,21 @@ def test_submit_answer_sse_escape_action_rejected_without_guardrail(force_no_ope
     assert error_events
     message = str(error_events[0].get("data", {}).get("message", ""))
     assert "Escape hatch is only available after guardrail is triggered." in message
+
+
+def test_submit_answer_sse_persistence_failure_emits_trace(force_no_openai_key):
+    client = TestClient(app)
+    with patch("app.api.v1.chat.record_answer", side_effect=RuntimeError("db down")):
+        response = client.post("/api/v1/chat/message", json=_payload("5"))
+
+    assert response.status_code == 200
+    events = _extract_events(response.text)
+    trace_events = [
+        e
+        for e in events
+        if e.get("type") == "trace" and e.get("data", {}).get("node_name") == "review_persistence"
+    ]
+    assert trace_events
+    metadata = trace_events[0].get("data", {}).get("metadata", {})
+    assert metadata.get("persisted") is False
+    assert metadata.get("reason") == "record_answer_failed"

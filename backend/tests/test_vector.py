@@ -174,4 +174,15 @@ class TestVectorStoreService:
             ).fetchone()
             assert result is not None
 
+            # 验证 review 相关表存在
+            result = conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='quiz_attempts'"
+            ).fetchone()
+            assert result is not None
+
+            result = conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='question_history'"
+            ).fetchone()
+            assert result is not None
+
             conn.close()
