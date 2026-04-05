@@ -46,9 +46,21 @@ class SocraticState(TypedDict, total=False):
     current_question: Optional[QuestionSchema]
     question_type: Literal["multiple_choice", "short_answer"]
     current_answer: Optional[str]
+    escape_action: Literal["continue", "show_answer", "skip"]
+    current_node_id: Optional[str]
     validation_result: Optional[dict]
     error_type: Optional[str]
     current_hint: Optional[str]
+    turn_count: int
+    stagnation_score: float
+    frustration_signals: list[str]
+    guardrail_triggered: bool
+    escape_hatch_visible: bool
+    tutor_mode: Literal["socratic", "semi_transparent"]
+    needs_review_node_ids: list[str]
+    review_reason: Optional[str]
+    context_summary: Optional[str]
+    pruned_message_count: int
     conversation_history: list[dict]
     trace_log: list[TraceEntry]
     error_message: Optional[str]
