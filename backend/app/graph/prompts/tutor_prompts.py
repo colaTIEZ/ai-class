@@ -18,6 +18,7 @@ Validation Summary:
 - error_type: {error_type}
 - reasoning: {reasoning}
 - missing: {missing}
+- tutor_mode: {tutor_mode}
 
 Generate one Socratic hint and return JSON with keys:
 - hint_text

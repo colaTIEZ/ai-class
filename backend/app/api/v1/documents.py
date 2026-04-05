@@ -1,6 +1,7 @@
 """文档操作路由 - 处理上传等"""
 
 import asyncio
+import sqlite3
 import uuid
 import logging
 from pathlib import Path
@@ -153,6 +154,11 @@ async def get_document_tree(document_id: int):
             nodes=nodes,
             total_nodes=len(nodes)
         )
+    except sqlite3.OperationalError as e:
+        if "no such table: knowledge_nodes" in str(e):
+            return KnowledgeTree(document_id=document_id, nodes=[], total_nodes=0)
+        logger.error(f"Failed to fetch tree for document {document_id}: {e}")
+        raise AppException("Internal error while fetching knowledge tree.", status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
     except Exception as e:
         logger.error(f"Failed to fetch tree for document {document_id}: {e}")
         raise AppException("Internal error while fetching knowledge tree.", status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)

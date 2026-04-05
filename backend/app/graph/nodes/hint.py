@@ -60,6 +60,9 @@ def generate_hint_node(state: SocraticState) -> dict[str, Any]:
     validation = state.get("validation_result") or {}
     question = state.get("current_question") or {}
     student_answer = (state.get("current_answer") or "").strip()
+    tutor_mode = state.get("tutor_mode", "socratic")
+    if tutor_mode not in {"socratic", "semi_transparent"}:
+        tutor_mode = "socratic"
 
     if error_message:
         trace_log.append(
@@ -105,6 +108,7 @@ def generate_hint_node(state: SocraticState) -> dict[str, Any]:
         error_type=error_type,
         reasoning=reasoning,
         missing=", ".join(str(item) for item in missing),
+        tutor_mode=tutor_mode,
     )
 
     try:
@@ -152,16 +156,23 @@ def generate_hint_node(state: SocraticState) -> dict[str, Any]:
                         "reason": "llm_parse_failed",
                         "error_type": error_type,
                         "hint_type": hint.hint_type,
+                        "tutor_mode": tutor_mode,
                     },
                 }
             )
             return {"current_hint": truncate_tokens(hint.hint_text, MAX_HINT_TOKENS)}
 
+    if tutor_mode == "semi_transparent":
+        # Semi-transparent mode gives direct direction but still avoids dumping full derivations.
+        hint_text = hint.hint_text.strip()
+        if hint_text:
+            hint.hint_text = f"Direct guidance: {hint_text}"
+
     trace_log.append(
         {
             "node": "socratic_hint",
             "timestamp": datetime.utcnow().isoformat() + "Z",
-            "metadata": {"success": True, "error_type": error_type, "hint_type": hint.hint_type},
+            "metadata": {"success": True, "error_type": error_type, "hint_type": hint.hint_type, "tutor_mode": tutor_mode},
         }
     )
     return {"current_hint": truncate_tokens(hint.hint_text, MAX_HINT_TOKENS)}
