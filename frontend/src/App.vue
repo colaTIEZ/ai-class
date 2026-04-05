@@ -10,7 +10,7 @@
       <nav class="ml-8 space-x-4 text-sm font-medium text-slate-600">
         <router-link to="/" class="hover:text-indigo-600 transition-colors">Study Material</router-link>
         <span class="text-slate-300">|</span>
-        <span class="text-slate-400 cursor-not-allowed">Review Notebook (Epic 3)</span>
+        <router-link to="/review" class="hover:text-indigo-600 transition-colors">Review Notebook</router-link>
       </nav>
     </header>
     

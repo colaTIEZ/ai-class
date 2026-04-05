@@ -6,6 +6,7 @@
 import type { ApiEnvelope } from '../types'
 
 const API_BASE = '/api/v1'
+const USER_ID_STORAGE_KEY = 'ai-class-user-id'
 
 /** 问题数据结构 */
 export interface QuestionData {
@@ -54,6 +55,25 @@ export interface StreamEvent {
   timestamp: string
 }
 
+function getClientUserId(): string {
+  if (typeof window === 'undefined') {
+    return 'anonymous'
+  }
+
+  const storedUserId = window.localStorage.getItem(USER_ID_STORAGE_KEY)
+  if (storedUserId && storedUserId.trim()) {
+    return storedUserId
+  }
+
+  const generatedUserId =
+    typeof crypto !== 'undefined' && 'randomUUID' in crypto
+      ? crypto.randomUUID()
+      : `user-${Date.now()}-${Math.random().toString(16).slice(2)}`
+
+  window.localStorage.setItem(USER_ID_STORAGE_KEY, generatedUserId)
+  return generatedUserId
+}
+
 /**
  * 初始化 Quiz 会话
  * 调用后端 LangGraph 流程生成测验问题
@@ -68,6 +88,7 @@ export async function initQuiz(
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
+      'X-User-ID': getClientUserId(),
     },
     body: JSON.stringify(request),
   })
@@ -88,7 +109,10 @@ export async function submitAnswerStream(
 ): Promise<void> {
   const response = await fetch(`${API_BASE}/chat/message`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      'X-User-ID': getClientUserId(),
+    },
     body: JSON.stringify(request),
   })
 

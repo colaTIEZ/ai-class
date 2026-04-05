@@ -16,3 +16,7 @@
 - **Missing Evidence: Conversation History Limit (20 messages)**: Explicit requirement to limit history to 20 messages. The diff does not address conversation_history management. This task item may be out of scope for this change.
 - **Missing Evidence: Trace Log Accumulation Prevention**: Trace logs must not accumulate in memory. Architectural issue requiring write-to-DB or streaming mechanism.
 - **Missing Evidence: LLM Response Streaming**: LLM outputs must stream. Cannot verify from diff whether LLM responses are streamed. Out of scope for token budget enforcement work.
+
+## Deferred from: code review of 3-1-knowledge-point-wrong-answer-notebook (2026-04-05)
+
+- 基于 `X-User-ID` 的客户端可控身份方案存在越权风险（`backend/app/api/v1/review.py:37`）；该方案与当前 MVP 无鉴权约束一致，判定为既有架构决策，后续在认证体系落地时统一治理。
