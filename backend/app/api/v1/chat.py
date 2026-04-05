@@ -21,7 +21,12 @@ from app.schemas.quiz import (
     ErrorResponse,
     AnswerSubmitRequest,
 )
-from app.graph.orchestrator import invoke_quiz_generation, invoke_answer_feedback
+from app.graph.orchestrator import (
+    build_answer_feedback_graph,
+    create_checkpointer,
+    create_connection,
+    invoke_quiz_generation,
+)
 from app.services.vector_store import mark_node_needs_review
 
 logger = logging.getLogger(__name__)
@@ -129,6 +134,38 @@ def _sse_data(payload: dict[str, Any]) -> str:
     return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
 
+def _project_trace_entry(entry: Any) -> dict[str, Any] | None:
+    if not isinstance(entry, dict):
+        return None
+
+    node_name = entry.get("node_name") or entry.get("node") or "unknown"
+    metadata = entry.get("metadata")
+    if not isinstance(metadata, dict):
+        metadata = {}
+
+    return {
+        "node_name": str(node_name),
+        "metadata": metadata,
+    }
+
+
+def _extract_trace_entry(node_update: Any) -> dict[str, Any] | None:
+    if not isinstance(node_update, dict):
+        return None
+
+    trace_log = node_update.get("trace_log")
+    if isinstance(trace_log, list) and trace_log:
+        return _project_trace_entry(trace_log[-1])
+
+    validation_result = node_update.get("validation_result")
+    if isinstance(validation_result, dict):
+        nested_trace_log = validation_result.get("trace_log")
+        if isinstance(nested_trace_log, list) and nested_trace_log:
+            return _project_trace_entry(nested_trace_log[-1])
+
+    return None
+
+
 @router.post(
     "/chat/message",
     summary="提交答案并流式返回苏格拉底提示",
@@ -140,98 +177,153 @@ async def submit_answer_stream(request: AnswerSubmitRequest) -> StreamingRespons
     async def event_generator():
         started = perf_counter()
         try:
-            result = invoke_answer_feedback(
-                thread_id=trace_id,
-                selected_node_ids=request.selected_node_ids,
-                question_type=request.question_type,
-                current_answer=request.current_answer,
-                current_question=request.current_question.model_dump(),
-                escape_action=request.action,
-                current_node_id=request.current_node_id or request.current_question.current_node_id,
-            )
-            state = result["state"]
-            validation = state.get("validation_result") or {}
-            hint = state.get("current_hint")
-            tutor_mode = str(state.get("tutor_mode") or "socratic")
-            escape_hatch_visible = state.get("escape_hatch_visible") is True
-            needs_review_queued = bool(state.get("needs_review_node_ids")) or bool(state.get("review_reason"))
-            guardrail_reason = ",".join(state.get("frustration_signals", []))
+            current_question = request.current_question.model_dump()
+            initial_state = {
+                "selected_node_ids": request.selected_node_ids,
+                "retrieved_chunks": [],
+                "current_question": current_question,
+                "question_type": request.question_type,
+                "current_answer": request.current_answer,
+                "escape_action": request.action or "continue",
+                "current_node_id": request.current_node_id or request.current_question.current_node_id,
+                "validation_result": None,
+                "error_type": None,
+                "current_hint": None,
+                "turn_count": 0,
+                "stagnation_score": 0.0,
+                "frustration_signals": [],
+                "guardrail_triggered": False,
+                "escape_hatch_visible": False,
+                "tutor_mode": "socratic",
+                "needs_review_node_ids": [],
+                "review_reason": None,
+                "context_summary": None,
+                "pruned_message_count": 0,
+                "conversation_history": [],
+                "trace_log": [
+                    {
+                        "node": "init_answer_feedback",
+                        "timestamp": datetime.utcnow().isoformat() + "Z",
+                        "metadata": {
+                            "thread_id": trace_id,
+                            "question_type": request.question_type,
+                            "escape_action": request.action or "continue",
+                        },
+                    }
+                ],
+                "error_message": None,
+            }
 
-            if request.action == "skip" and needs_review_queued:
-                review_reason = str(state.get("review_reason") or "user_skipped_after_guardrail")
-                for node_id in state.get("needs_review_node_ids", []):
-                    if isinstance(node_id, str) and node_id.strip():
-                        mark_node_needs_review(trace_id, node_id, review_reason)
-            trace_log = []
-            trace_log.extend(state.get("trace_log", []))
-            trace_log.extend(validation.get("trace_log", []))
-            seen_trace_keys: set[str] = set()
-            for entry in trace_log:
-                if not isinstance(entry, dict):
-                    continue
-                node_name = str(entry.get("node", "unknown"))
-                metadata = entry.get("metadata", {})
-                dedupe_key = f"{node_name}|{json.dumps(metadata, sort_keys=True, ensure_ascii=False)}"
-                if dedupe_key in seen_trace_keys:
-                    continue
-                seen_trace_keys.add(dedupe_key)
+            with create_connection() as conn:
+                workflow = build_answer_feedback_graph()
+                checkpointer = create_checkpointer(conn)
+                graph = workflow.compile(checkpointer=checkpointer)
+                config = {"configurable": {"thread_id": trace_id}}
+
                 yield _sse_data(
                     {
                         "type": "trace",
                         "data": {
-                            "node_name": node_name,
-                            "metadata": metadata if isinstance(metadata, dict) else {},
+                            "node_name": "init_answer_feedback",
+                            "metadata": {
+                                "thread_id": trace_id,
+                                "question_type": request.question_type,
+                                "escape_action": request.action or "continue",
+                            },
                         },
                         "trace_id": trace_id,
                         "timestamp": datetime.utcnow().isoformat() + "Z",
                     }
                 )
 
-            if state.get("error_message"):
-                yield _sse_data(
-                    {
-                        "type": "error",
-                        "data": {"message": state["error_message"], "code": "VALIDATION_ERROR"},
-                        "trace_id": trace_id,
-                        "timestamp": datetime.utcnow().isoformat() + "Z",
-                    }
-                )
-                return
+                state: dict[str, Any] = dict(initial_state)
+                validation: dict[str, Any] = {}
 
-            if isinstance(hint, str) and hint.strip():
-                yield _sse_data(
-                    {
-                        "type": "content",
-                        "data": {
-                            "text": hint,
-                            "hint_type": "scaffold" if tutor_mode == "semi_transparent" else "leading_question",
-                            "tutor_mode": tutor_mode,
-                            "escape_hatch_visible": escape_hatch_visible,
-                            "guardrail_reason": guardrail_reason,
-                            "needs_review_queued": needs_review_queued,
-                        },
-                        "trace_id": trace_id,
-                        "timestamp": datetime.utcnow().isoformat() + "Z",
-                    }
-                )
-            elif validation.get("is_correct") is False:
-                yield _sse_data(
-                    {
-                        "type": "content",
-                        "data": {
-                            "text": "Your answer is not quite there yet. Try focusing on the core concept again.",
-                            "hint_type": "leading_question",
-                            "tutor_mode": tutor_mode,
-                            "escape_hatch_visible": escape_hatch_visible,
-                            "guardrail_reason": guardrail_reason,
-                            "needs_review_queued": needs_review_queued,
-                        },
-                        "trace_id": trace_id,
-                        "timestamp": datetime.utcnow().isoformat() + "Z",
-                    }
-                )
-            else:
-                if validation.get("is_correct") is True:
+                for chunk in graph.stream(initial_state, config, stream_mode="updates"):
+                    if not isinstance(chunk, dict):
+                        continue
+
+                    for node_name, node_update in chunk.items():
+                        if not isinstance(node_update, dict):
+                            continue
+                        state.update(node_update)
+
+                        projected = _extract_trace_entry(node_update)
+                        if projected is None:
+                            continue
+
+                        trace_node_name = str(node_name)
+                        yield _sse_data(
+                            {
+                                "type": "trace",
+                                "data": {
+                                    "node_name": trace_node_name,
+                                    "metadata": projected["metadata"],
+                                },
+                                "trace_id": trace_id,
+                                "timestamp": datetime.utcnow().isoformat() + "Z",
+                            }
+                        )
+
+                        if node_name == "validate":
+                            validation = state.get("validation_result") or {}
+
+                hint = state.get("current_hint")
+                tutor_mode = str(state.get("tutor_mode") or "socratic")
+                escape_hatch_visible = state.get("escape_hatch_visible") is True
+                needs_review_queued = bool(state.get("needs_review_node_ids")) or bool(state.get("review_reason"))
+                guardrail_reason = ",".join(state.get("frustration_signals", []))
+
+                if request.action == "skip" and needs_review_queued:
+                    review_reason = str(state.get("review_reason") or "user_skipped_after_guardrail")
+                    for node_id in state.get("needs_review_node_ids", []):
+                        if isinstance(node_id, str) and node_id.strip():
+                            mark_node_needs_review(trace_id, node_id, review_reason)
+
+                if state.get("error_message"):
+                    yield _sse_data(
+                        {
+                            "type": "error",
+                            "data": {"message": state["error_message"], "code": "VALIDATION_ERROR"},
+                            "trace_id": trace_id,
+                            "timestamp": datetime.utcnow().isoformat() + "Z",
+                        }
+                    )
+                    return
+
+                if isinstance(hint, str) and hint.strip():
+                    yield _sse_data(
+                        {
+                            "type": "content",
+                            "data": {
+                                "text": hint,
+                                "hint_type": "scaffold" if tutor_mode == "semi_transparent" else "leading_question",
+                                "tutor_mode": tutor_mode,
+                                "escape_hatch_visible": escape_hatch_visible,
+                                "guardrail_reason": guardrail_reason,
+                                "needs_review_queued": needs_review_queued,
+                            },
+                            "trace_id": trace_id,
+                            "timestamp": datetime.utcnow().isoformat() + "Z",
+                        }
+                    )
+                elif validation.get("is_correct") is False:
+                    yield _sse_data(
+                        {
+                            "type": "content",
+                            "data": {
+                                "text": "Your answer is not quite there yet. Try focusing on the core concept again.",
+                                "hint_type": "leading_question",
+                                "tutor_mode": tutor_mode,
+                                "escape_hatch_visible": escape_hatch_visible,
+                                "guardrail_reason": guardrail_reason,
+                                "needs_review_queued": needs_review_queued,
+                            },
+                            "trace_id": trace_id,
+                            "timestamp": datetime.utcnow().isoformat() + "Z",
+                        }
+                    )
+                elif validation.get("is_correct") is True:
                     yield _sse_data(
                         {
                             "type": "content",
@@ -247,20 +339,21 @@ async def submit_answer_stream(request: AnswerSubmitRequest) -> StreamingRespons
                             "timestamp": datetime.utcnow().isoformat() + "Z",
                         }
                     )
-            first_byte_latency_ms = int((perf_counter() - started) * 1000)
-            yield _sse_data(
-                {
-                    "type": "trace",
-                    "data": {
-                        "node_name": "sse",
-                        "metadata": {
-                            "first_byte_latency_ms": first_byte_latency_ms,
+
+                first_byte_latency_ms = int((perf_counter() - started) * 1000)
+                yield _sse_data(
+                    {
+                        "type": "trace",
+                        "data": {
+                            "node_name": "sse",
+                            "metadata": {
+                                "first_byte_latency_ms": first_byte_latency_ms,
+                            },
                         },
-                    },
-                    "trace_id": trace_id,
-                    "timestamp": datetime.utcnow().isoformat() + "Z",
-                }
-            )
+                        "trace_id": trace_id,
+                        "timestamp": datetime.utcnow().isoformat() + "Z",
+                    }
+                )
         except Exception as e:
             logger.exception("submit_answer_stream failed: %s", e)
             yield _sse_data(

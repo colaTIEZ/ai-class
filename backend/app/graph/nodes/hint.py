@@ -72,7 +72,7 @@ def generate_hint_node(state: SocraticState) -> dict[str, Any]:
                 "metadata": {"skipped": True, "reason": error_message},
             }
         )
-        return {"current_hint": ""}
+        return {"current_hint": "", "trace_log": trace_log}
 
     validation_error_type = validation.get("error_type")
     if not isinstance(validation_error_type, str):
@@ -100,7 +100,7 @@ def generate_hint_node(state: SocraticState) -> dict[str, Any]:
                 },
             }
         )
-        return {"current_hint": truncate_tokens(hint.hint_text, MAX_HINT_TOKENS)}
+        return {"current_hint": truncate_tokens(hint.hint_text, MAX_HINT_TOKENS), "trace_log": trace_log}
 
     user_prompt = TUTOR_USER_TEMPLATE.format(
         question=question_text,
@@ -160,7 +160,7 @@ def generate_hint_node(state: SocraticState) -> dict[str, Any]:
                     },
                 }
             )
-            return {"current_hint": truncate_tokens(hint.hint_text, MAX_HINT_TOKENS)}
+            return {"current_hint": truncate_tokens(hint.hint_text, MAX_HINT_TOKENS), "trace_log": trace_log}
 
     if tutor_mode == "semi_transparent":
         # Semi-transparent mode gives direct direction but still avoids dumping full derivations.
@@ -175,4 +175,4 @@ def generate_hint_node(state: SocraticState) -> dict[str, Any]:
             "metadata": {"success": True, "error_type": error_type, "hint_type": hint.hint_type, "tutor_mode": tutor_mode},
         }
     )
-    return {"current_hint": truncate_tokens(hint.hint_text, MAX_HINT_TOKENS)}
+    return {"current_hint": truncate_tokens(hint.hint_text, MAX_HINT_TOKENS), "trace_log": trace_log}

@@ -67,6 +67,26 @@ def test_submit_answer_sse_first_byte_latency_trace_present(force_no_openai_key)
     assert latency < 3000
 
 
+def test_submit_answer_sse_trace_payload_is_lightweight(force_no_openai_key):
+    client = TestClient(app)
+    response = client.post("/api/v1/chat/message", json=_payload("5"))
+    events = _extract_events(response.text)
+    trace_events = [event for event in events if event.get("type") == "trace"]
+
+    assert trace_events
+    assert trace_events[0]["data"]["node_name"] == "init_answer_feedback"
+    assert any(event["data"]["node_name"] == "validate" for event in trace_events)
+    assert any(event["data"]["node_name"] == "guardrails" for event in trace_events)
+    assert any(event["data"]["node_name"] == "socratic_hint" for event in trace_events)
+    for event in trace_events:
+        data = event.get("data", {})
+        assert set(data.keys()).issubset({"node_name", "metadata"})
+        assert isinstance(data.get("node_name"), str)
+        assert isinstance(data.get("metadata"), dict)
+        assert "validation_result" not in data
+        assert "current_hint" not in data
+
+
 def test_submit_answer_sse_concurrent_requests_have_distinct_trace_id(force_no_openai_key):
     def _send(answer: str) -> str:
         client = TestClient(app)

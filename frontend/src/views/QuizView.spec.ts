@@ -17,7 +17,7 @@ const storeState = reactive({
   },
   currentAnswer: '',
   currentHint: null as string | null,
-  traceLog: [] as Array<Record<string, unknown>>,
+  traceLog: [] as Array<{ node_name: string; metadata: Record<string, unknown> }>,
   traceId: 'trace-1',
   selectedNodeIds: ['node-a'],
   escapeHatchVisible: true,
@@ -76,5 +76,20 @@ describe('QuizView escape hatch', () => {
 
     await buttons[2].trigger('click')
     expect(submitAnswer).toHaveBeenCalledWith('skip')
+  })
+
+  it('renders trace pulses from the local store state', () => {
+    storeState.traceLog = [
+      { node_name: 'validate', metadata: { error_type: 'logic_gap' } },
+      { node_name: 'sse', metadata: { first_byte_latency_ms: 42 } },
+    ]
+
+    const wrapper = mountQuizView()
+
+    expect(wrapper.text()).toContain('Trace Log (2)')
+    expect(wrapper.text()).toContain('validate')
+    expect(wrapper.text()).toContain('logic_gap')
+    expect(wrapper.text()).toContain('sse')
+    expect(wrapper.text()).toContain('42')
   })
 })

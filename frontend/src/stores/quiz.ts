@@ -2,6 +2,29 @@ import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import { initQuiz, submitAnswerStream, type QuestionData, type StreamEvent } from '../api/quiz';
 
+type TracePulse = {
+  node_name: string;
+  metadata: Record<string, unknown>;
+};
+
+function normalizeTracePulse(data: unknown): TracePulse | null {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) {
+    return null;
+  }
+
+  const traceData = data as Record<string, unknown>;
+  const nodeName = traceData.node_name;
+  const metadata =
+    traceData.metadata && typeof traceData.metadata === 'object' && !Array.isArray(traceData.metadata)
+      ? (traceData.metadata as Record<string, unknown>)
+      : {};
+
+  return {
+    node_name: String(typeof nodeName === 'string' && nodeName.trim() ? nodeName : 'unknown'),
+    metadata,
+  };
+}
+
 export const useQuizStore = defineStore('quiz', () => {
   // 节点选择状态
   const selectedNodeIds = ref<Set<string>>(new Set());
@@ -19,7 +42,7 @@ export const useQuizStore = defineStore('quiz', () => {
   const tutorMode = ref<'socratic' | 'semi_transparent'>('socratic');
   const needsReviewQueued = ref(false);
   const isStreaming = ref(false);
-  const traceLog = ref<Array<Record<string, unknown>>>([]);
+  const traceLog = ref<TracePulse[]>([]);
   const currentAnswer = ref('');
   const activeStreamRequestId = ref(0);
 
@@ -130,7 +153,10 @@ export const useQuizStore = defineStore('quiz', () => {
             guardrailReason.value = String(event.data?.guardrail_reason ?? '') || null;
             needsReviewQueued.value = Boolean(event.data?.needs_review_queued);
           } else if (event.type === 'trace') {
-            traceLog.value.push(event.data);
+            const tracePulse = normalizeTracePulse(event.data);
+            if (tracePulse) {
+              traceLog.value.push(tracePulse);
+            }
           } else if (event.type === 'error') {
             error.value = String(event.data?.message ?? 'Unable to generate hint');
           }

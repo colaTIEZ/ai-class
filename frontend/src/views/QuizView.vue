@@ -123,8 +123,17 @@
         </div>
 
         <details v-if="quizStore.traceLog.length" class="mt-4">
-          <summary class="cursor-pointer text-sm text-gray-600">Trace Log</summary>
-          <pre class="mt-2 p-3 text-xs bg-gray-50 border rounded overflow-auto max-h-56">{{ quizStore.traceLog }}</pre>
+          <summary class="cursor-pointer text-sm text-gray-600">Trace Log ({{ quizStore.traceLog.length }})</summary>
+          <ul class="mt-2 space-y-2 max-h-56 overflow-auto">
+            <li
+              v-for="(entry, index) in quizStore.traceLog"
+              :key="`${entry.node_name}-${index}`"
+              class="rounded border bg-gray-50 p-3"
+            >
+              <p class="text-sm font-semibold text-gray-700">{{ entry.node_name }}</p>
+              <pre class="mt-1 text-xs text-gray-600 whitespace-pre-wrap">{{ formatTraceMetadata(entry.metadata) }}</pre>
+            </li>
+          </ul>
         </details>
       </div>
 
@@ -190,4 +199,8 @@
 <script setup lang="ts">
 import { useQuizStore } from '../stores/quiz';
 const quizStore = useQuizStore();
+
+function formatTraceMetadata(metadata: Record<string, unknown>): string {
+  return JSON.stringify(metadata, null, 2);
+}
 </script>
