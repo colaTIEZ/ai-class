@@ -22,6 +22,7 @@ from app.schemas.quiz import (
     AnswerSubmitRequest,
 )
 from app.graph.orchestrator import invoke_quiz_generation, invoke_answer_feedback
+from app.services.vector_store import mark_node_needs_review
 
 logger = logging.getLogger(__name__)
 
@@ -145,10 +146,22 @@ async def submit_answer_stream(request: AnswerSubmitRequest) -> StreamingRespons
                 question_type=request.question_type,
                 current_answer=request.current_answer,
                 current_question=request.current_question.model_dump(),
+                escape_action=request.action,
+                current_node_id=request.current_node_id,
             )
             state = result["state"]
             validation = state.get("validation_result") or {}
             hint = state.get("current_hint")
+            tutor_mode = str(state.get("tutor_mode") or "socratic")
+            escape_hatch_visible = state.get("escape_hatch_visible") is True
+            needs_review_queued = bool(state.get("needs_review_node_ids")) or bool(state.get("review_reason"))
+            guardrail_reason = ",".join(state.get("frustration_signals", []))
+
+            if request.action == "skip" and needs_review_queued:
+                review_reason = str(state.get("review_reason") or "user_skipped_after_guardrail")
+                for node_id in state.get("needs_review_node_ids", []):
+                    if isinstance(node_id, str) and node_id.strip():
+                        mark_node_needs_review(trace_id, node_id, review_reason)
             trace_log = []
             trace_log.extend(state.get("trace_log", []))
             trace_log.extend(validation.get("trace_log", []))
@@ -191,7 +204,11 @@ async def submit_answer_stream(request: AnswerSubmitRequest) -> StreamingRespons
                         "type": "content",
                         "data": {
                             "text": hint,
-                            "hint_type": "leading_question",
+                            "hint_type": "scaffold" if tutor_mode == "semi_transparent" else "leading_question",
+                            "tutor_mode": tutor_mode,
+                            "escape_hatch_visible": escape_hatch_visible,
+                            "guardrail_reason": guardrail_reason,
+                            "needs_review_queued": needs_review_queued,
                         },
                         "trace_id": trace_id,
                         "timestamp": datetime.utcnow().isoformat() + "Z",
@@ -204,6 +221,10 @@ async def submit_answer_stream(request: AnswerSubmitRequest) -> StreamingRespons
                         "data": {
                             "text": "Your answer is not quite there yet. Try focusing on the core concept again.",
                             "hint_type": "leading_question",
+                            "tutor_mode": tutor_mode,
+                            "escape_hatch_visible": escape_hatch_visible,
+                            "guardrail_reason": guardrail_reason,
+                            "needs_review_queued": needs_review_queued,
                         },
                         "trace_id": trace_id,
                         "timestamp": datetime.utcnow().isoformat() + "Z",
@@ -214,7 +235,14 @@ async def submit_answer_stream(request: AnswerSubmitRequest) -> StreamingRespons
                     yield _sse_data(
                         {
                             "type": "content",
-                            "data": {"text": "Great job! Your answer is correct.", "hint_type": "check_understanding"},
+                            "data": {
+                                "text": "Great job! Your answer is correct.",
+                                "hint_type": "check_understanding",
+                                "tutor_mode": tutor_mode,
+                                "escape_hatch_visible": escape_hatch_visible,
+                                "guardrail_reason": guardrail_reason,
+                                "needs_review_queued": needs_review_queued,
+                            },
                             "trace_id": trace_id,
                             "timestamp": datetime.utcnow().isoformat() + "Z",
                         }

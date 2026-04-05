@@ -18,6 +18,9 @@ from app.graph.nodes.retrieve import retrieve_node
 from app.graph.nodes.question_gen import question_gen_node
 from app.graph.nodes.validate import validate_answer_node
 from app.graph.nodes.hint import generate_hint_node
+from app.graph.nodes.guardrails import evaluate_guardrails_node
+from app.graph.nodes.prune import prune_context_node
+from app.graph.nodes.escape import apply_escape_hatch_node
 
 
 def get_checkpointer_path() -> str:
@@ -78,18 +81,36 @@ def build_quiz_graph() -> StateGraph:
 
 
 def build_answer_feedback_graph() -> StateGraph:
-    """构建答题反馈图：validate -> (socratic_hint | END)。"""
+    """构建答题反馈图：validate -> guardrails -> prune/escape/hint/end。"""
     workflow = StateGraph(SocraticState)
     workflow.add_node("validate", validate_answer_node)
+    workflow.add_node("guardrails", evaluate_guardrails_node)
+    workflow.add_node("prune", prune_context_node)
+    workflow.add_node("escape_action", apply_escape_hatch_node)
     workflow.add_node("socratic_hint", generate_hint_node)
 
-    def route_on_validation(state: SocraticState) -> str:
+    def route_after_guardrails(state: SocraticState) -> str:
+        action = state.get("escape_action", "continue")
+        if action in {"show_answer", "skip"}:
+            return "escape_action"
+
         validation = state.get("validation_result") or {}
         is_correct = validation.get("is_correct") is True
-        return END if is_correct else "socratic_hint"
+        if is_correct:
+            return END
+
+        guardrail_triggered = state.get("guardrail_triggered") is True
+        return "prune" if guardrail_triggered else "socratic_hint"
+
+    def route_after_prune(state: SocraticState) -> str:
+        validation = state.get("validation_result") or {}
+        return END if validation.get("is_correct") is True else "socratic_hint"
 
     workflow.add_edge(START, "validate")
-    workflow.add_conditional_edges("validate", route_on_validation)
+    workflow.add_edge("validate", "guardrails")
+    workflow.add_conditional_edges("guardrails", route_after_guardrails)
+    workflow.add_conditional_edges("prune", route_after_prune)
+    workflow.add_edge("escape_action", END)
     workflow.add_edge("socratic_hint", END)
     return workflow
 
@@ -168,6 +189,8 @@ def invoke_answer_feedback(
     question_type: str,
     current_answer: str,
     current_question: dict,
+    escape_action: str = "continue",
+    current_node_id: str | None = None,
 ) -> dict:
     """执行答题反馈流程（验证+路由+提示）。"""
     initial_state: SocraticState = {
@@ -176,9 +199,21 @@ def invoke_answer_feedback(
         "current_question": current_question,
         "question_type": question_type,
         "current_answer": current_answer,
+        "escape_action": escape_action,
+        "current_node_id": current_node_id,
         "validation_result": None,
         "error_type": None,
         "current_hint": None,
+        "turn_count": 0,
+        "stagnation_score": 0.0,
+        "frustration_signals": [],
+        "guardrail_triggered": False,
+        "escape_hatch_visible": False,
+        "tutor_mode": "socratic",
+        "needs_review_node_ids": [],
+        "review_reason": None,
+        "context_summary": None,
+        "pruned_message_count": 0,
         "conversation_history": [],
         "trace_log": [{
             "node": "init_answer_feedback",
@@ -186,6 +221,7 @@ def invoke_answer_feedback(
             "metadata": {
                 "thread_id": thread_id,
                 "question_type": question_type,
+                "escape_action": escape_action,
             }
         }],
         "error_message": None,

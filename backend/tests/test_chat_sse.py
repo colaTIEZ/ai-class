@@ -8,6 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
+from app.services.vector_store import get_connection
 
 
 def _payload(answer: str) -> dict:
@@ -20,6 +21,7 @@ def _payload(answer: str) -> dict:
             "correct_answer": "4",
         },
         "current_answer": answer,
+        "action": "continue",
     }
 
 
@@ -97,3 +99,40 @@ def test_submit_answer_sse_peak_memory_under_budget(force_no_openai_key):
         if tracemalloc.is_tracing():
             tracemalloc.stop()
     assert peak < 1_800_000  # 1.8MB budget
+
+
+def test_submit_answer_sse_show_answer_action(force_no_openai_key):
+    client = TestClient(app)
+    payload = _payload("5")
+    payload["action"] = "show_answer"
+    response = client.post("/api/v1/chat/message", json=payload)
+    events = _extract_events(response.text)
+    content_events = [e for e in events if e.get("type") == "content"]
+    assert content_events
+    text = str(content_events[0].get("data", {}).get("text", ""))
+    assert "Direct answer:" in text
+
+
+def test_submit_answer_sse_skip_action_marks_review(force_no_openai_key):
+    client = TestClient(app)
+    payload = _payload("skip")
+    payload["action"] = "skip"
+    payload["current_node_id"] = "node-1"
+    response = client.post("/api/v1/chat/message", json=payload)
+    events = _extract_events(response.text)
+    content_events = [e for e in events if e.get("type") == "content"]
+    assert content_events
+    needs_review = content_events[0].get("data", {}).get("needs_review_queued")
+    assert bool(needs_review) is True
+
+    conn = get_connection()
+    try:
+        row = conn.execute(
+            "SELECT node_id, needs_review FROM question_review_flags WHERE node_id = ? ORDER BY id DESC LIMIT 1",
+            ("node-1",),
+        ).fetchone()
+        assert row is not None
+        assert row["node_id"] == "node-1"
+        assert int(row["needs_review"]) == 1
+    finally:
+        conn.close()

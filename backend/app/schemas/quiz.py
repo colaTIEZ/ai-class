@@ -59,3 +59,5 @@ class AnswerSubmitRequest(BaseModel):
     question_type: Literal["multiple_choice", "short_answer"] = "multiple_choice"
     current_question: QuestionData
     current_answer: str = Field(..., min_length=1)
+    action: Literal["continue", "show_answer", "skip"] = "continue"
+    current_node_id: Optional[str] = None
