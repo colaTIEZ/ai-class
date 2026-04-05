@@ -11,6 +11,7 @@ from app.graph.state import SocraticState
 def apply_escape_hatch_node(state: SocraticState) -> dict[str, Any]:
     trace_log = list(state.get("trace_log", []))
     action = state.get("escape_action", "continue")
+    guardrail_triggered = state.get("guardrail_triggered") is True
 
     if action not in {"show_answer", "skip"}:
         trace_log.append(
@@ -21,6 +22,23 @@ def apply_escape_hatch_node(state: SocraticState) -> dict[str, Any]:
             }
         )
         return {"trace_log": trace_log}
+
+    if not guardrail_triggered:
+        trace_log.append(
+            {
+                "node": "escape_action",
+                "timestamp": datetime.utcnow().isoformat() + "Z",
+                "metadata": {
+                    "success": False,
+                    "action": action,
+                    "reason": "guardrail_not_triggered",
+                },
+            }
+        )
+        return {
+            "error_message": "Escape hatch is only available after guardrail is triggered.",
+            "trace_log": trace_log,
+        }
 
     current_question = state.get("current_question") or {}
     correct_answer = current_question.get("correct_answer", "")

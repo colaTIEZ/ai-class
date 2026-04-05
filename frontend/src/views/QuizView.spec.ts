@@ -13,6 +13,7 @@ const storeState = reactive({
     question_text: 'What is 2 + 2?',
     options: ['3', '4', '5'],
     correct_answer: '4',
+    current_node_id: 'node-a',
   },
   currentAnswer: '',
   currentHint: null as string | null,

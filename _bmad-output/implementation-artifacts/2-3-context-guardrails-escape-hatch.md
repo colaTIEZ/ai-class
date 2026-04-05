@@ -1,6 +1,6 @@
 # Story 2.3: Context Guardrails & Escape Hatch
 
-Status: review
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -78,6 +78,16 @@ so that I don't get trapped in an endless AI loop or waste server tokens.
   - [x] Add frontend tests for escape hatch rendering and action dispatch in guardrail conditions
   - [x] Validate memory-oriented assertions remain bounded under repeated interactions
 
+### Review Findings
+
+- [x] [Review][Patched][High] Skip 行为的节点落库链路已补齐：问题对象现在携带 `current_node_id`，前端 `submitAnswer()` 会自动回传该字段，后端 `chat.py` 也会在提交请求未显式携带时回收 `current_question.current_node_id` 作为兜底。验证：新增 [backend/tests/test_chat_sse.py](backend/tests/test_chat_sse.py) 的回归用例确认 Skip 可稳定写入 `question_review_flags`；新增 [frontend/src/stores/quiz.spec.ts](frontend/src/stores/quiz.spec.ts) 确认提交载荷会带上 `current_node_id`。
+- [x] [Review][Patched][Medium] 已按决策实施“严格后端门控 Escape Action”：移除“action 自动触发 guardrail”逻辑，并在未触发 guardrail 时拒绝 `show_answer/skip`（返回 error 事件）。验证：`backend/tests/test_orchestrator_guardrails.py` 新增拒绝用例；`backend/tests/test_chat_sse.py` 新增 SSE 拒绝用例；相关 Story 2.3 测试集通过。
+- [ ] [Review][Defer][Low] SSE Content-Type 校验可增强兼容性：frontend/src/api/quiz.ts 当前使用区分大小写的 `includes('text/event-stream')`，建议改为 lower-case 比较以提升跨网关兼容（不阻塞当前功能）。
+- [ ] [Review][Defer][Low] 并发提交流可优化为显式取消旧请求：frontend/src/stores/quiz.ts 通过 requestId 忽略旧流事件，行为正确但仍会消耗旧连接资源。建议后续引入 AbortController 做资源级中断（优化项，非阻塞）。
+- [ ] [Review][Dismissed] “skip 落库缺少测试”判定为误报：backend/tests/test_chat_sse.py 已包含 `test_submit_answer_sse_skip_action_marks_review`，并校验 `question_review_flags` 中 node 记录存在。
+- [ ] [Review][Dismissed] “上传失败孤儿文件未清理”判定为误报：backend/app/api/v1/documents.py 在异常分支已执行 `temp_path.unlink()` 清理并记录清理失败日志。
+- [ ] [Review][Dismissed] “show_answer 绕过 hint 节点违反 AC”判定为误报：Story Task 4 明确要求 `show_answer` 走直出分支；当前实现与任务描述一致，不构成偏差。
+
 ## Dev Notes
 
 ### Relevant Architecture Patterns and Constraints
@@ -154,6 +164,8 @@ GPT-5.3-Codex
 
 - dev-story workflow execution: selected story `2-3-context-guardrails-escape-hatch`
 - sprint-status transition update: `2-3-context-guardrails-escape-hatch` -> `in-progress`
+- strict gating regression command: `d:/code/ai-class/backend/.venv/Scripts/python.exe -m pytest d:/code/ai-class/backend/tests/test_orchestrator_guardrails.py d:/code/ai-class/backend/tests/test_chat_sse.py d:/code/ai-class/backend/tests/test_guardrails_node.py d:/code/ai-class/backend/tests/test_prune_node.py` (16 passed)
+- node-id propagation regression command: `cd d:/code/ai-class/frontend; npm exec vitest run src/stores/quiz.spec.ts src/views/QuizView.spec.ts` (3 passed)
 - Targeted regression command: `python -m pytest backend/tests/test_guardrails_node.py backend/tests/test_prune_node.py backend/tests/test_orchestrator_guardrails.py backend/tests/test_chat_sse.py backend/tests/test_validate_hint_nodes.py` (20 passed)
 - Full backend regression command: `python -m pytest backend/tests` (117 passed)
 - Frontend component test command: `vitest run src/views/QuizView.spec.ts` (2 passed)

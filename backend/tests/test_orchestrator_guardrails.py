@@ -33,7 +33,15 @@ def test_build_answer_feedback_graph_compiles():
 def test_escape_action_route_to_end_after_node(force_no_openai_key):
     workflow = build_answer_feedback_graph()
     graph = workflow.compile()
-    state = _state(escape_action="show_answer")
+    state = _state(escape_action="show_answer", current_answer="too hard")
     result = graph.invoke(state)
     assert isinstance(result.get("current_hint"), str)
     assert "Direct answer:" in result.get("current_hint", "")
+
+
+def test_escape_action_rejected_without_guardrail(force_no_openai_key):
+    workflow = build_answer_feedback_graph()
+    graph = workflow.compile()
+    state = _state(escape_action="show_answer", current_answer="5")
+    result = graph.invoke(state)
+    assert result.get("error_message") == "Escape hatch is only available after guardrail is triggered."

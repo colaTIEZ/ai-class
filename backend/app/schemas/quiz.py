@@ -28,6 +28,10 @@ class QuestionData(BaseModel):
         description="选项列表（多选题时有值）"
     )
     correct_answer: str = Field(..., description="正确答案")
+    current_node_id: Optional[str] = Field(
+        default=None,
+        description="生成该问题所关联的知识节点 ID"
+    )
 
 
 class QuizInitResponseData(BaseModel):

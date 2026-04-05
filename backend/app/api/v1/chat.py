@@ -147,7 +147,7 @@ async def submit_answer_stream(request: AnswerSubmitRequest) -> StreamingRespons
                 current_answer=request.current_answer,
                 current_question=request.current_question.model_dump(),
                 escape_action=request.action,
-                current_node_id=request.current_node_id,
+                current_node_id=request.current_node_id or request.current_question.current_node_id,
             )
             state = result["state"]
             validation = state.get("validation_result") or {}

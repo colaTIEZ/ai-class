@@ -19,6 +19,7 @@ def _payload(answer: str) -> dict:
             "question_text": "2+2?",
             "options": None,
             "correct_answer": "4",
+            "current_node_id": "node-1",
         },
         "current_answer": answer,
         "action": "continue",
@@ -103,7 +104,7 @@ def test_submit_answer_sse_peak_memory_under_budget(force_no_openai_key):
 
 def test_submit_answer_sse_show_answer_action(force_no_openai_key):
     client = TestClient(app)
-    payload = _payload("5")
+    payload = _payload("too hard")
     payload["action"] = "show_answer"
     response = client.post("/api/v1/chat/message", json=payload)
     events = _extract_events(response.text)
@@ -115,9 +116,9 @@ def test_submit_answer_sse_show_answer_action(force_no_openai_key):
 
 def test_submit_answer_sse_skip_action_marks_review(force_no_openai_key):
     client = TestClient(app)
-    payload = _payload("skip")
+    payload = _payload("too hard")
     payload["action"] = "skip"
-    payload["current_node_id"] = "node-1"
+    payload.pop("current_node_id", None)
     response = client.post("/api/v1/chat/message", json=payload)
     events = _extract_events(response.text)
     content_events = [e for e in events if e.get("type") == "content"]
@@ -136,3 +137,28 @@ def test_submit_answer_sse_skip_action_marks_review(force_no_openai_key):
         assert int(row["needs_review"]) == 1
     finally:
         conn.close()
+
+
+def test_submit_answer_sse_skip_action_uses_question_node_id(force_no_openai_key):
+    client = TestClient(app)
+    payload = _payload("too hard")
+    payload["action"] = "skip"
+    payload.pop("current_node_id", None)
+    response = client.post("/api/v1/chat/message", json=payload)
+    events = _extract_events(response.text)
+    content_events = [e for e in events if e.get("type") == "content"]
+    assert content_events
+    needs_review = content_events[0].get("data", {}).get("needs_review_queued")
+    assert bool(needs_review) is True
+
+
+def test_submit_answer_sse_escape_action_rejected_without_guardrail(force_no_openai_key):
+    client = TestClient(app)
+    payload = _payload("5")
+    payload["action"] = "show_answer"
+    response = client.post("/api/v1/chat/message", json=payload)
+    events = _extract_events(response.text)
+    error_events = [e for e in events if e.get("type") == "error"]
+    assert error_events
+    message = str(error_events[0].get("data", {}).get("message", ""))
+    assert "Escape hatch is only available after guardrail is triggered." in message

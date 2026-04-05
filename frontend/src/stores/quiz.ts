@@ -115,6 +115,7 @@ export const useQuizStore = defineStore('quiz', () => {
           current_question: currentQuestion.value,
           current_answer: currentAnswer.value,
           action,
+          current_node_id: currentQuestion.value.current_node_id ?? null,
         },
         (event: StreamEvent) => {
           if (activeStreamRequestId.value !== requestId) {

@@ -11,6 +11,7 @@ class QuestionSchema(TypedDict):
     question_text: str
     options: Optional[list[str]]  # Multiple choice 时有值，short_answer 时为 None
     correct_answer: str
+    current_node_id: Optional[str]
 
 
 class TraceEntry(TypedDict):

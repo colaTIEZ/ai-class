@@ -12,6 +12,7 @@ export interface QuestionData {
   question_text: string
   options: string[] | null
   correct_answer: string
+  current_node_id?: string | null
 }
 
 /** Quiz 初始化响应数据 */

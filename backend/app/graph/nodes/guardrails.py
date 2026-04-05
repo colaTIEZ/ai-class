@@ -77,18 +77,16 @@ def evaluate_guardrails_node(state: SocraticState) -> dict[str, Any]:
     recent_answers = _extract_recent_answers(state)
     stagnation_score = _compute_stagnation_score(recent_answers)
 
-    forced_escape = escape_action in {"show_answer", "skip"}
     guardrail_triggered = bool(
-        forced_escape
-        or frustration_signals
+        frustration_signals
         or stagnation_score >= STAGNATION_THRESHOLD
         or computed_turn_count > 5
     )
     tutor_mode = "semi_transparent" if guardrail_triggered else "socratic"
 
     trigger_reasons: list[str] = []
-    if forced_escape:
-        trigger_reasons.append(f"escape_action:{escape_action}")
+    if escape_action in {"show_answer", "skip"}:
+        trigger_reasons.append(f"escape_action_requested:{escape_action}")
     if frustration_signals:
         trigger_reasons.append("frustration_detected")
     if stagnation_score >= STAGNATION_THRESHOLD:

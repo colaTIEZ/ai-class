@@ -66,6 +66,14 @@ def question_gen_node(state: SocraticState) -> dict[str, Any]:
     # 调用问题生成服务
     try:
         question = generate_question(retrieved_chunks, question_type)
+        source_node_id = None
+        if retrieved_chunks and isinstance(retrieved_chunks[0], dict):
+            source_node_id = retrieved_chunks[0].get("node_id")
+            if not isinstance(source_node_id, str) or not source_node_id.strip():
+                source_node_id = None
+
+        if source_node_id:
+            question["current_node_id"] = source_node_id
         
         trace_log.append({
             "node": "question_gen",
@@ -75,6 +83,7 @@ def question_gen_node(state: SocraticState) -> dict[str, Any]:
                 "chunks_used": len(retrieved_chunks),
                 "question_length": len(question["question_text"]),
                 "has_options": question.get("options") is not None,
+                "source_node_id": source_node_id,
                 "success": True
             }
         })
