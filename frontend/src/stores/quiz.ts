@@ -14,6 +14,10 @@ export const useQuizStore = defineStore('quiz', () => {
   const error = ref<string | null>(null);
   const traceId = ref<string | null>(null);
   const currentHint = ref<string | null>(null);
+  const escapeHatchVisible = ref(false);
+  const guardrailReason = ref<string | null>(null);
+  const tutorMode = ref<'socratic' | 'semi_transparent'>('socratic');
+  const needsReviewQueued = ref(false);
   const isStreaming = ref(false);
   const traceLog = ref<Array<Record<string, unknown>>>([]);
   const currentAnswer = ref('');
@@ -69,6 +73,10 @@ export const useQuizStore = defineStore('quiz', () => {
         questionType.value = response.data.question_type;
         traceId.value = response.trace_id;
         currentHint.value = null;
+        escapeHatchVisible.value = false;
+        guardrailReason.value = null;
+        tutorMode.value = 'socratic';
+        needsReviewQueued.value = false;
         currentAnswer.value = '';
         traceLog.value = [];
       } else {
@@ -81,7 +89,7 @@ export const useQuizStore = defineStore('quiz', () => {
     }
   }
 
-  async function submitAnswer() {
+  async function submitAnswer(action: 'continue' | 'show_answer' | 'skip' = 'continue') {
     if (!currentQuestion.value) {
       error.value = 'No active question';
       return;
@@ -95,6 +103,7 @@ export const useQuizStore = defineStore('quiz', () => {
     error.value = null;
     currentHint.value = null;
     traceLog.value = [];
+    guardrailReason.value = null;
     const requestId = activeStreamRequestId.value + 1;
     activeStreamRequestId.value = requestId;
 
@@ -105,6 +114,7 @@ export const useQuizStore = defineStore('quiz', () => {
           question_type: questionType.value,
           current_question: currentQuestion.value,
           current_answer: currentAnswer.value,
+          action,
         },
         (event: StreamEvent) => {
           if (activeStreamRequestId.value !== requestId) {
@@ -114,6 +124,10 @@ export const useQuizStore = defineStore('quiz', () => {
           if (event.type === 'content') {
             const text = String(event.data?.text ?? '');
             currentHint.value = text;
+            tutorMode.value = (event.data?.tutor_mode as 'socratic' | 'semi_transparent') || tutorMode.value;
+            escapeHatchVisible.value = Boolean(event.data?.escape_hatch_visible);
+            guardrailReason.value = String(event.data?.guardrail_reason ?? '') || null;
+            needsReviewQueued.value = Boolean(event.data?.needs_review_queued);
           } else if (event.type === 'trace') {
             traceLog.value.push(event.data);
           } else if (event.type === 'error') {
@@ -137,6 +151,10 @@ export const useQuizStore = defineStore('quiz', () => {
     traceId.value = null;
     isLoading.value = false;
     currentHint.value = null;
+    escapeHatchVisible.value = false;
+    guardrailReason.value = null;
+    tutorMode.value = 'socratic';
+    needsReviewQueued.value = false;
     isStreaming.value = false;
     traceLog.value = [];
     currentAnswer.value = '';
@@ -159,6 +177,10 @@ export const useQuizStore = defineStore('quiz', () => {
     error,
     traceId,
     currentHint,
+    escapeHatchVisible,
+    guardrailReason,
+    tutorMode,
+    needsReviewQueued,
     isStreaming,
     traceLog,
     currentAnswer,

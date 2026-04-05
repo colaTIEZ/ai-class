@@ -114,6 +114,18 @@ def init_db(conn: Optional[sqlite3.Connection] = None) -> sqlite3.Connection:
         "ON document_tasks(status, updated_at)"
     )
 
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS question_review_flags (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            thread_id TEXT NOT NULL,
+            node_id TEXT NOT NULL,
+            review_reason TEXT NOT NULL,
+            needs_review INTEGER NOT NULL DEFAULT 1,
+            created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+            UNIQUE(thread_id, node_id)
+        );
+    """)
+
     # 向量嵌入虚拟表（使用 sqlite-vec）
     # 维度 1536 是 OpenAI text-embedding-3-small 的默认输出维度
     conn.execute("""
@@ -125,6 +137,30 @@ def init_db(conn: Optional[sqlite3.Connection] = None) -> sqlite3.Connection:
 
     conn.commit()
     return conn
+
+
+def mark_node_needs_review(thread_id: str, node_id: str, review_reason: str) -> None:
+    """Persist skip/guardrail review flag for Epic 3 handoff."""
+    if not thread_id or not node_id:
+        return
+
+    conn = get_connection()
+    try:
+        init_db(conn)
+        conn.execute(
+            """
+            INSERT INTO question_review_flags(thread_id, node_id, review_reason, needs_review)
+            VALUES (?, ?, ?, 1)
+            ON CONFLICT(thread_id, node_id)
+            DO UPDATE SET
+                review_reason = excluded.review_reason,
+                needs_review = 1
+            """,
+            (thread_id, node_id, review_reason or "user_skipped_after_guardrail"),
+        )
+        conn.commit()
+    finally:
+        conn.close()
 
 def insert_document_nodes(conn: sqlite3.Connection, nodes: list) -> None:
     """批量插入知识节点和向量嵌入"""

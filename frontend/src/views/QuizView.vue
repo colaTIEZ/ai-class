@@ -86,12 +86,35 @@
 
         <div class="mt-4 flex gap-2">
           <button
-            @click="quizStore.submitAnswer()"
+            @click="quizStore.submitAnswer('continue')"
             :disabled="quizStore.isStreaming"
             class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-60"
           >
             {{ quizStore.isStreaming ? 'Thinking...' : 'Submit Answer' }}
           </button>
+          <button
+            v-if="quizStore.escapeHatchVisible"
+            @click="quizStore.submitAnswer('show_answer')"
+            :disabled="quizStore.isStreaming"
+            class="px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 disabled:opacity-60"
+          >
+            Show Answer
+          </button>
+          <button
+            v-if="quizStore.escapeHatchVisible"
+            @click="quizStore.submitAnswer('skip')"
+            :disabled="quizStore.isStreaming"
+            class="px-4 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 disabled:opacity-60"
+          >
+            Skip Question
+          </button>
+        </div>
+
+        <div v-if="quizStore.guardrailReason" class="mt-3 text-sm text-orange-700">
+          Guardrail Trigger: {{ quizStore.guardrailReason }}
+        </div>
+        <div v-if="quizStore.needsReviewQueued" class="mt-2 text-sm text-blue-700">
+          Marked as Needs Review for follow-up.
         </div>
 
         <div v-if="quizStore.currentHint" class="mt-4 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">

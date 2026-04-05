@@ -31,11 +31,24 @@ export interface AnswerSubmitRequest {
   question_type: 'multiple_choice' | 'short_answer'
   current_question: QuestionData
   current_answer: string
+  action?: 'continue' | 'show_answer' | 'skip'
+  current_node_id?: string | null
 }
 
 export interface StreamEvent {
   type: 'content' | 'trace' | 'error'
-  data: Record<string, unknown>
+  data: {
+    text?: string
+    message?: string
+    hint_type?: string
+    tutor_mode?: 'socratic' | 'semi_transparent'
+    escape_hatch_visible?: boolean
+    guardrail_reason?: string
+    needs_review_queued?: boolean
+    node_name?: string
+    metadata?: Record<string, unknown>
+    [key: string]: unknown
+  }
   trace_id: string
   timestamp: string
 }
