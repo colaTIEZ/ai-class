@@ -26,6 +26,12 @@ def enable_embedding_for_tests():
     settings.openai_api_key = old_key
 
 
+@pytest.fixture
+def force_no_openai_key(monkeypatch: pytest.MonkeyPatch):
+    """在需要规则回退分支时，强制禁用 API Key，避免测试并发写全局配置。"""
+    monkeypatch.setattr(settings, "openai_api_key", "")
+
+
 @pytest_asyncio.fixture
 async def async_client():
     """异步客户端，复用应用并显式管理队列生命周期。"""

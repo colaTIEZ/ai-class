@@ -9,10 +9,17 @@ from langchain_openai import ChatOpenAI
 from pydantic import ValidationError
 
 from app.core.config import settings
-from app.graph.nodes.llm_runtime import invoke_with_retry, parse_json_payload
+from app.graph.nodes.llm_runtime import invoke_with_retry, parse_json_payload, truncate_tokens
 from app.graph.prompts.tutor_prompts import TUTOR_SYSTEM_PROMPT, TUTOR_USER_TEMPLATE
 from app.graph.state import SocraticState
 from app.schemas.hint import HintResult
+
+
+MAX_HINT_TOKENS = 600
+
+# Validate token budget at module load
+if not isinstance(MAX_HINT_TOKENS, int) or MAX_HINT_TOKENS <= 0:
+    raise ValueError(f"MAX_HINT_TOKENS must be a positive integer, got {MAX_HINT_TOKENS}")
 
 
 def _build_llm() -> ChatOpenAI:
@@ -64,7 +71,11 @@ def generate_hint_node(state: SocraticState) -> dict[str, Any]:
         )
         return {"current_hint": ""}
 
-    error_type = str(validation.get("error_type", "logic_gap"))
+    validation_error_type = validation.get("error_type")
+    if not isinstance(validation_error_type, str):
+        validation_error_type = str(validation_error_type) if validation_error_type else "logic_gap"
+    error_type = validation_error_type
+    
     question_text = str(question.get("question_text", "this question"))
     reasoning = str(validation.get("reasoning", ""))
     missing = validation.get("key_missing_concepts", [])
@@ -86,7 +97,7 @@ def generate_hint_node(state: SocraticState) -> dict[str, Any]:
                 },
             }
         )
-        return {"current_hint": hint.hint_text}
+        return {"current_hint": truncate_tokens(hint.hint_text, MAX_HINT_TOKENS)}
 
     user_prompt = TUTOR_USER_TEMPLATE.format(
         question=question_text,
@@ -144,7 +155,7 @@ def generate_hint_node(state: SocraticState) -> dict[str, Any]:
                     },
                 }
             )
-            return {"current_hint": hint.hint_text}
+            return {"current_hint": truncate_tokens(hint.hint_text, MAX_HINT_TOKENS)}
 
     trace_log.append(
         {
@@ -153,4 +164,4 @@ def generate_hint_node(state: SocraticState) -> dict[str, Any]:
             "metadata": {"success": True, "error_type": error_type, "hint_type": hint.hint_type},
         }
     )
-    return {"current_hint": hint.hint_text}
+    return {"current_hint": truncate_tokens(hint.hint_text, MAX_HINT_TOKENS)}

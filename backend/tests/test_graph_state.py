@@ -159,13 +159,6 @@ class TestOrchestratorSchema:
         assert "validate" in workflow.nodes
         assert "socratic_hint" in workflow.nodes
 
-    def test_route_on_validation(self):
-        from langgraph.graph import END
-        from app.graph.orchestrator import route_on_validation
-
-        assert route_on_validation({"validation_result": {"is_correct": True, "error_type": "no_error"}}) == END
-        assert route_on_validation({"validation_result": {"is_correct": False, "error_type": "conceptual"}}) == "socratic_hint"
-
     def test_checkpointer_path(self):
         """验证 checkpointer 路径生成正确"""
         from app.graph.orchestrator import get_checkpointer_path

@@ -1,8 +1,10 @@
 """SSE 聊天接口测试。"""
 
 import json
+import tracemalloc
 from concurrent.futures import ThreadPoolExecutor
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
@@ -36,7 +38,7 @@ def _extract_events(body: str) -> list[dict]:
     return events
 
 
-def test_submit_answer_sse_stream():
+def test_submit_answer_sse_stream(force_no_openai_key):
     client = TestClient(app)
     response = client.post("/api/v1/chat/message", json=_payload("5"))
     assert response.status_code == 200
@@ -49,25 +51,49 @@ def test_submit_answer_sse_stream():
     assert all(event.get("trace_id") for event in events)
 
 
-def test_submit_answer_sse_first_byte_latency_trace_present():
+def test_submit_answer_sse_first_byte_latency_trace_present(force_no_openai_key):
     client = TestClient(app)
     response = client.post("/api/v1/chat/message", json=_payload("5"))
     events = _extract_events(response.text)
     sse_traces = [e for e in events if e.get("type") == "trace" and e.get("data", {}).get("node_name") == "sse"]
     assert sse_traces
-    latency = sse_traces[-1]["data"]["metadata"]["first_byte_latency_ms"]
+    latency_traces = [e for e in sse_traces if "first_byte_latency_ms" in e.get("data", {}).get("metadata", {})]
+    assert latency_traces
+    latency = latency_traces[-1]["data"]["metadata"]["first_byte_latency_ms"]
     assert isinstance(latency, int)
     assert latency < 3000
 
 
-def test_submit_answer_sse_concurrent_requests_have_distinct_trace_id():
+def test_submit_answer_sse_concurrent_requests_have_distinct_trace_id(force_no_openai_key):
     def _send(answer: str) -> str:
         client = TestClient(app)
         response = client.post("/api/v1/chat/message", json=_payload(answer))
+        assert response.status_code == 200
         events = _extract_events(response.text)
         assert events
         return str(events[0]["trace_id"])
 
     with ThreadPoolExecutor(max_workers=2) as executor:
-        t1, t2 = executor.map(_send, ["5", "6"])
-    assert t1 != t2
+        futures = [executor.submit(_send, answer) for answer in ["5", "6"]]
+        trace_ids: list[str] = []
+        for future in futures:
+            try:
+                trace_ids.append(future.result(timeout=10))
+            except Exception as exc:  # noqa: BLE001
+                pytest.fail(f"Concurrent SSE request failed: {exc!r}")
+
+    assert len(trace_ids) == 2
+    assert trace_ids[0] != trace_ids[1]
+
+
+def test_submit_answer_sse_peak_memory_under_budget(force_no_openai_key):
+    client = TestClient(app)
+    try:
+        if not tracemalloc.is_tracing():
+            tracemalloc.start()
+        _ = client.post("/api/v1/chat/message", json=_payload("5"))
+        _, peak = tracemalloc.get_traced_memory()
+    finally:
+        if tracemalloc.is_tracing():
+            tracemalloc.stop()
+    assert peak < 1_800_000  # 1.8MB budget

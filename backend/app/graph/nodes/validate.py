@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+import logging
 from typing import Any
 
 from langchain_openai import ChatOpenAI
@@ -14,7 +15,20 @@ from app.graph.prompts.validator_prompts import VALIDATOR_SYSTEM_PROMPT, VALIDAT
 from app.graph.state import SocraticState
 from app.schemas.validation import ValidationResult
 
-MAX_ANSWER_TOKENS = 300
+LOGGER = logging.getLogger(__name__)
+
+MAX_QUESTION_TOKENS = 300
+MAX_ANSWER_TOKENS = 200
+MAX_REASONING_TOKENS = 400
+
+# Validate token budgets at module load
+for _const_name, _const_val in [
+    ("MAX_QUESTION_TOKENS", MAX_QUESTION_TOKENS),
+    ("MAX_ANSWER_TOKENS", MAX_ANSWER_TOKENS),
+    ("MAX_REASONING_TOKENS", MAX_REASONING_TOKENS),
+]:
+    if not isinstance(_const_val, int) or _const_val <= 0:
+        raise ValueError(f"{_const_name} must be a positive integer, got {_const_val}")
 
 
 def _build_llm() -> ChatOpenAI:
@@ -92,18 +106,53 @@ def _rule_based_fallback(question_text: str, correct_answer: str, student_answer
 def validate_answer_node(state: SocraticState) -> dict[str, Any]:
     trace_log = list(state.get("trace_log", []))
     error_message = state.get("error_message")
-    question = state.get("current_question") or {}
-    raw_student_answer = (state.get("current_answer") or "").strip()
-    student_answer = truncate_tokens(raw_student_answer, MAX_ANSWER_TOKENS).strip()
-    question_text = (question.get("question_text", "") or "").strip()
-    correct_answer = (question.get("correct_answer", "") or "").strip()
+    question_raw = state.get("current_question")
+    question = question_raw if isinstance(question_raw, dict) else {}
+    raw_student_answer_value = state.get("current_answer")
+    raw_student_answer = raw_student_answer_value if isinstance(raw_student_answer_value, str) else ""
+    if raw_student_answer_value is not None and not isinstance(raw_student_answer_value, str):
+        LOGGER.warning("validate_answer_node received non-string current_answer: %s", type(raw_student_answer_value).__name__)
+
+    raw_student_answer = raw_student_answer.strip()
+    student_answer_raw_truncated = truncate_tokens(raw_student_answer, MAX_ANSWER_TOKENS)
+    student_answer = student_answer_raw_truncated.strip()
+    answer_truncated = student_answer_raw_truncated != raw_student_answer
+
+    question_text_raw = question.get("question_text", "") if isinstance(question.get("question_text", ""), str) else ""
+    question_text = truncate_tokens(question_text_raw.strip(), MAX_QUESTION_TOKENS).strip()
+    question_truncated = truncate_tokens(question_text_raw.strip(), MAX_QUESTION_TOKENS) != question_text_raw.strip()
+
+    correct_answer_value = question.get("correct_answer", "")
+    correct_answer = correct_answer_value.strip() if isinstance(correct_answer_value, str) else ""
+    if correct_answer_value is not None and not isinstance(correct_answer_value, str):
+        LOGGER.warning("validate_answer_node received non-string correct_answer: %s", type(correct_answer_value).__name__)
+
+    truncation_warnings: list[str] = []
+    if answer_truncated:
+        truncation_warnings.append("student_answer_truncated")
+        LOGGER.warning(
+            "Student answer truncated from %s to %s tokens",
+            len(raw_student_answer.split()),
+            len(student_answer.split()),
+        )
+    if question_truncated:
+        truncation_warnings.append("question_text_truncated")
+        LOGGER.warning(
+            "Question text truncated from %s to %s tokens",
+            len(question_text_raw.split()),
+            len(question_text.split()),
+        )
 
     if error_message:
         trace_log.append(
             {
                 "node": "validate",
                 "timestamp": datetime.utcnow().isoformat() + "Z",
-                "metadata": {"skipped": True, "reason": error_message},
+                "metadata": {
+                    "skipped": True,
+                    "reason": error_message,
+                    "warnings": truncation_warnings,
+                },
             }
         )
         return {
@@ -120,6 +169,33 @@ def validate_answer_node(state: SocraticState) -> dict[str, Any]:
             }
         }
 
+    if raw_student_answer and not student_answer:
+        fallback = ValidationResult(
+            is_correct=False,
+            error_type="incomplete",
+            severity=1,
+            confidence=0.5,
+            reasoning="Student answer became empty after normalization/truncation.",
+        )
+        trace_log.append(
+            {
+                "node": "validate",
+                "timestamp": datetime.utcnow().isoformat() + "Z",
+                "metadata": {
+                    "success": True,
+                    "fallback": True,
+                    "reason": "student_answer_empty_after_truncation",
+                    "warnings": truncation_warnings,
+                },
+            }
+        )
+        payload = fallback.model_dump()
+        reasoning_value = payload.get("reasoning")
+        reasoning_text = reasoning_value.strip() if isinstance(reasoning_value, str) else "Validation reasoning unavailable."
+        payload["reasoning"] = truncate_tokens(reasoning_text, MAX_REASONING_TOKENS).strip() or "Validation reasoning unavailable."
+        payload["trace_log"] = trace_log[-20:]
+        return {"validation_result": payload}
+
     if not question_text or not student_answer:
         fallback = ValidationResult(
             is_correct=False,
@@ -132,10 +208,18 @@ def validate_answer_node(state: SocraticState) -> dict[str, Any]:
             {
                 "node": "validate",
                 "timestamp": datetime.utcnow().isoformat() + "Z",
-                "metadata": {"success": True, "fallback": True, "error_type": fallback.error_type},
+                "metadata": {
+                    "success": True,
+                    "fallback": True,
+                    "error_type": fallback.error_type,
+                    "warnings": truncation_warnings,
+                },
             }
         )
         payload = fallback.model_dump()
+        reasoning_value = payload.get("reasoning")
+        reasoning_text = reasoning_value.strip() if isinstance(reasoning_value, str) else "Validation reasoning unavailable."
+        payload["reasoning"] = truncate_tokens(reasoning_text, MAX_REASONING_TOKENS).strip() or "Validation reasoning unavailable."
         payload["trace_log"] = trace_log[-20:]
         return {"validation_result": payload}
 
@@ -150,11 +234,15 @@ def validate_answer_node(state: SocraticState) -> dict[str, Any]:
                     "fallback": True,
                     "reason": "missing_openai_api_key",
                     "error_type": fallback.error_type,
-                    "answer_truncated": student_answer != raw_student_answer,
+                    "answer_truncated": answer_truncated,
+                    "warnings": truncation_warnings,
                 },
             }
         )
         payload = fallback.model_dump()
+        reasoning_value = payload.get("reasoning")
+        reasoning_text = reasoning_value.strip() if isinstance(reasoning_value, str) else "Validation reasoning unavailable."
+        payload["reasoning"] = truncate_tokens(reasoning_text, MAX_REASONING_TOKENS).strip() or "Validation reasoning unavailable."
         payload["trace_log"] = trace_log[-20:]
         return {"validation_result": payload}
 
@@ -208,11 +296,15 @@ def validate_answer_node(state: SocraticState) -> dict[str, Any]:
                         "fallback": True,
                         "reason": "llm_parse_failed",
                         "error_type": validation.error_type,
-                        "answer_truncated": student_answer != raw_student_answer,
+                        "answer_truncated": answer_truncated,
+                        "warnings": truncation_warnings,
                     },
                 }
             )
             payload = validation.model_dump()
+            reasoning_value = payload.get("reasoning")
+            reasoning_text = reasoning_value.strip() if isinstance(reasoning_value, str) else "Validation reasoning unavailable."
+            payload["reasoning"] = truncate_tokens(reasoning_text, MAX_REASONING_TOKENS).strip() or "Validation reasoning unavailable."
             payload["trace_log"] = trace_log[-20:]
             return {"validation_result": payload}
 
@@ -224,10 +316,21 @@ def validate_answer_node(state: SocraticState) -> dict[str, Any]:
                 "success": True,
                 "error_type": validation.error_type,
                 "is_correct": validation.is_correct,
-                "answer_truncated": student_answer != raw_student_answer,
+                "answer_truncated": answer_truncated,
+                "warnings": truncation_warnings,
             },
         }
     )
     payload = validation.model_dump()
+    reasoning_value = payload.get("reasoning")
+    reasoning_text = reasoning_value.strip() if isinstance(reasoning_value, str) else "Validation reasoning unavailable."
+    reasoning_truncated = truncate_tokens(reasoning_text, MAX_REASONING_TOKENS).strip()
+    if reasoning_truncated != reasoning_text:
+        LOGGER.warning(
+            "Validation reasoning truncated from %s to %s tokens",
+            len(reasoning_text.split()),
+            len(reasoning_truncated.split()),
+        )
+    payload["reasoning"] = reasoning_truncated or "Validation reasoning unavailable."
     payload["trace_log"] = trace_log[-20:]
     return {"validation_result": payload}

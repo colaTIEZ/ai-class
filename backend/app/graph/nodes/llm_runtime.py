@@ -50,6 +50,8 @@ def invoke_with_retry(fn: Callable[[], T], *, max_attempts: int = 3, base_delay_
 
 
 def truncate_tokens(text: str, max_tokens: int) -> str:
+    if not isinstance(max_tokens, int) or max_tokens <= 0:
+        raise ValueError(f"max_tokens must be a positive integer, got {max_tokens}")
     parts = text.split()
     if len(parts) <= max_tokens:
         return text
