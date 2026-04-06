@@ -9,13 +9,14 @@ from langchain_openai import ChatOpenAI
 from pydantic import ValidationError
 
 from app.core.config import settings
+from app.core.llm_config import LLMConfig
 from app.graph.nodes.llm_runtime import invoke_with_retry, parse_json_payload, truncate_tokens
 from app.graph.prompts.tutor_prompts import TUTOR_SYSTEM_PROMPT, TUTOR_USER_TEMPLATE
 from app.graph.state import SocraticState
 from app.schemas.hint import HintResult
 
 
-MAX_HINT_TOKENS = 600
+MAX_HINT_TOKENS = LLMConfig.HINT_GENERATION_TOKENS
 
 # Validate token budget at module load
 if not isinstance(MAX_HINT_TOKENS, int) or MAX_HINT_TOKENS <= 0:
@@ -27,8 +28,8 @@ def _build_llm() -> ChatOpenAI:
         api_key=settings.openai_api_key,
         base_url=settings.openai_base_url or None,
         model=settings.openai_model,
-        temperature=0.3,
-        timeout=10.0,
+        temperature=LLMConfig.TEMPERATURE,
+        timeout=LLMConfig.TIMEOUT_SECONDS,
     )
 
 
@@ -128,7 +129,11 @@ def generate_hint_node(state: SocraticState) -> dict[str, Any]:
                 return HintResult.model_validate(result)
             raise ValueError("Unexpected structured output type")
 
-        hint = invoke_with_retry(_invoke_structured)
+        hint = invoke_with_retry(
+            _invoke_structured,
+            max_attempts=LLMConfig.MAX_RETRIES,
+            base_delay_seconds=LLMConfig.RETRY_BASE_WAIT_SECONDS,
+        )
     except Exception:
         try:
             llm = _build_llm()
@@ -143,7 +148,11 @@ def generate_hint_node(state: SocraticState) -> dict[str, Any]:
                 data = parse_json_payload(str(response.content))
                 return HintResult.model_validate(data)
 
-            hint = invoke_with_retry(_invoke_raw)
+            hint = invoke_with_retry(
+                _invoke_raw,
+                max_attempts=LLMConfig.MAX_RETRIES,
+                base_delay_seconds=LLMConfig.RETRY_BASE_WAIT_SECONDS,
+            )
         except (ValidationError, ValueError):
             hint = _fallback_hint(error_type, question_text)
             trace_log.append(

@@ -11,56 +11,17 @@ from langchain_openai import ChatOpenAI
 from langchain_core.messages import SystemMessage, HumanMessage
 
 from app.core.config import settings
+from app.core.llm_config import LLMConfig
+from app.graph.prompts.question_gen_prompts import (
+        QUESTION_GEN_SYSTEM_PROMPT,
+        MULTIPLE_CHOICE_TEMPLATE,
+        SHORT_ANSWER_TEMPLATE,
+)
 from app.graph.state import QuestionSchema
 
 
-# 系统提示模板 - 强调只使用提供的上下文
-SYSTEM_PROMPT = """You are a quiz question generator for an educational system.
-
-CRITICAL RULES:
-1. You MUST ONLY use information from the provided context to generate questions.
-2. DO NOT use any external knowledge or make up information.
-3. If the context is insufficient to generate a question, respond with an error.
-4. Questions must be directly answerable from the context.
-
-Your task is to generate exactly ONE quiz question based on the provided learning material."""
-
-# 多选题模板
-MULTIPLE_CHOICE_TEMPLATE = """Based ONLY on the following learning material, generate ONE multiple choice question.
-
-LEARNING MATERIAL:
-{context}
-
-REQUIREMENTS:
-- Generate exactly 4 options (A, B, C, D)
-- Only ONE option should be correct
-- The correct answer MUST be directly stated or clearly implied in the material
-- Incorrect options should be plausible but clearly wrong based on the material
-
-RESPONSE FORMAT (JSON only, no markdown):
-{{
-  "question_text": "Your question here?",
-  "options": ["Option A", "Option B", "Option C", "Option D"],
-  "correct_answer": "The correct option text"
-}}"""
-
-# 简答题模板
-SHORT_ANSWER_TEMPLATE = """Based ONLY on the following learning material, generate ONE short answer question.
-
-LEARNING MATERIAL:
-{context}
-
-REQUIREMENTS:
-- The answer should be concise (1-2 sentences)
-- The answer MUST be directly found in or derived from the material
-- Do not ask for opinions or interpretations
-
-RESPONSE FORMAT (JSON only, no markdown):
-{{
-  "question_text": "Your question here?",
-  "options": null,
-  "correct_answer": "The expected answer"
-}}"""
+# 兼容现有测试命名
+SYSTEM_PROMPT = QUESTION_GEN_SYSTEM_PROMPT
 
 
 def get_llm_client() -> ChatOpenAI:
@@ -76,8 +37,8 @@ def get_llm_client() -> ChatOpenAI:
         api_key=settings.openai_api_key,
         base_url=settings.openai_base_url or None,
         model=settings.openai_model,
-        temperature=0.3,  # 低温度确保一致性
-        timeout=10.0,  # 10秒超时（用户快速反馈）
+        temperature=LLMConfig.TEMPERATURE,
+        timeout=LLMConfig.TIMEOUT_SECONDS,
     )
 
 

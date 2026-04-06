@@ -10,6 +10,7 @@ from langchain_openai import ChatOpenAI
 from pydantic import ValidationError
 
 from app.core.config import settings
+from app.core.llm_config import LLMConfig
 from app.graph.nodes.llm_runtime import invoke_with_retry, parse_json_payload, truncate_tokens
 from app.graph.prompts.validator_prompts import VALIDATOR_SYSTEM_PROMPT, VALIDATOR_USER_TEMPLATE
 from app.graph.state import SocraticState
@@ -17,9 +18,9 @@ from app.schemas.validation import ValidationResult
 
 LOGGER = logging.getLogger(__name__)
 
-MAX_QUESTION_TOKENS = 300
-MAX_ANSWER_TOKENS = 200
-MAX_REASONING_TOKENS = 400
+MAX_QUESTION_TOKENS = LLMConfig.QUESTION_CONTEXT_TOKENS
+MAX_ANSWER_TOKENS = LLMConfig.STUDENT_ANSWER_TOKENS
+MAX_REASONING_TOKENS = LLMConfig.VALIDATION_REASONING_TOKENS
 
 # Validate token budgets at module load
 for _const_name, _const_val in [
@@ -36,8 +37,8 @@ def _build_llm() -> ChatOpenAI:
         api_key=settings.openai_api_key,
         base_url=settings.openai_base_url or None,
         model=settings.openai_model,
-        temperature=0.3,
-        timeout=10.0,
+        temperature=LLMConfig.TEMPERATURE,
+        timeout=LLMConfig.TIMEOUT_SECONDS,
     )
 
 
@@ -269,7 +270,11 @@ def validate_answer_node(state: SocraticState) -> dict[str, Any]:
                 return ValidationResult.model_validate(result)
             raise ValueError("Unexpected structured output type")
 
-        validation = invoke_with_retry(_invoke_structured)
+        validation = invoke_with_retry(
+            _invoke_structured,
+            max_attempts=LLMConfig.MAX_RETRIES,
+            base_delay_seconds=LLMConfig.RETRY_BASE_WAIT_SECONDS,
+        )
     except Exception:
         try:
             llm = _build_llm()
@@ -284,7 +289,11 @@ def validate_answer_node(state: SocraticState) -> dict[str, Any]:
                 data = parse_json_payload(str(response.content))
                 return ValidationResult.model_validate(data)
 
-            validation = invoke_with_retry(_invoke_raw)
+            validation = invoke_with_retry(
+                _invoke_raw,
+                max_attempts=LLMConfig.MAX_RETRIES,
+                base_delay_seconds=LLMConfig.RETRY_BASE_WAIT_SECONDS,
+            )
         except (ValidationError, ValueError):
             validation = _rule_based_fallback(question_text, correct_answer, student_answer)
             trace_log.append(
