@@ -3,9 +3,11 @@ import { ref, onMounted, onBeforeUnmount } from 'vue';
 import { Graph } from '@antv/g6';
 import type { KnowledgeTree, KnowledgeNode } from '../../api/documents';
 import { useQuizStore } from '../../stores/quiz';
+import { masteryBandColor } from './mastery';
 
 const props = defineProps<{
   treeData: KnowledgeTree;
+  masteryByParent?: Record<string, number>;
 }>();
 
 const containerRef = ref<HTMLElement | null>(null);
@@ -74,6 +76,13 @@ onMounted(() => {
 
   const data = buildTreeData(props.treeData.nodes);
 
+  const resolveNodeFill = (d: any) => {
+    const payload = (d?.data ?? {}) as { node_id?: string; parent_id?: string | null };
+    const clusterId = payload.parent_id || payload.node_id;
+    const score = clusterId ? props.masteryByParent?.[clusterId] : undefined;
+    return masteryBandColor(score);
+  };
+
   graph = new Graph({
     container: containerRef.value,
     autoFit: 'view',
@@ -88,7 +97,7 @@ onMounted(() => {
     behaviors: ['drag-canvas', 'zoom-canvas', 'collapse-expand'],
     node: {
       style: {
-        fill: '#4F46E5',
+        fill: (d: any) => resolveNodeFill(d),
         radius: 4,
         padding: 6,
         labelText: (d: any) => d.label,

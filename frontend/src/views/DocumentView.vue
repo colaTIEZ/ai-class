@@ -2,6 +2,7 @@
 import { ref, onMounted, computed } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { getDocumentTree } from '../api/documents';
+import { getChapterMastery } from '../api/review';
 import type { KnowledgeTree } from '../api/documents';
 import KnowledgeGraph from '../components/graph/KnowledgeGraph.vue';
 import { useQuizStore } from '../stores/quiz';
@@ -12,6 +13,7 @@ const quizStore = useQuizStore();
 
 const documentId = computed(() => Number(route.params.id));
 const treeData = ref<KnowledgeTree | null>(null);
+const masteryByParent = ref<Record<string, number>>({});
 const isLoading = ref(true);
 const errorMsg = ref('');
 
@@ -22,6 +24,20 @@ onMounted(async () => {
     treeData.value = await getDocumentTree(documentId.value);
   } catch (err: any) {
     errorMsg.value = err.message || 'Failed to load document structure';
+  }
+
+  try {
+    const masteryResponse = await getChapterMastery();
+    if (masteryResponse.status === 'success' && masteryResponse.data) {
+      masteryByParent.value = Object.fromEntries(
+        masteryResponse.data.by_parent.map((item) => [item.parent_id, item.mastery_score])
+      );
+    } else {
+      masteryByParent.value = {};
+    }
+  } catch {
+    // Keep graph rendering even if mastery fetch fails.
+    masteryByParent.value = {};
   } finally {
     isLoading.value = false;
   }
@@ -55,7 +71,7 @@ const startQuiz = () => {
       <div v-else-if="errorMsg" class="flex w-full h-full items-center justify-center">
         <span class="text-red-500 font-medium">{{ errorMsg }}</span>
       </div>
-      <KnowledgeGraph v-else-if="treeData" :treeData="treeData" />
+      <KnowledgeGraph v-else-if="treeData" :treeData="treeData" :masteryByParent="masteryByParent" />
     </div>
   </div>
 </template>

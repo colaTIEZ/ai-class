@@ -32,6 +32,24 @@ export interface WrongAnswersData {
   }
 }
 
+export interface ChapterMasteryItem {
+  parent_id: string
+  parent_label: string
+  attempted_count: number
+  correct_count: number
+  mastery_score: number
+}
+
+export interface ChapterMasteryData {
+  by_parent: ChapterMasteryItem[]
+  summary: {
+    total_parents: number
+    total_attempted: number
+    total_correct: number
+    overall_mastery_score: number
+  }
+}
+
 function getClientUserId(): string {
   if (typeof window === 'undefined') {
     return 'anonymous'
@@ -58,6 +76,24 @@ export async function getWrongAnswers(
   if (nodeIdFilter && nodeIdFilter.trim()) {
     url.searchParams.set('node_id_filter', nodeIdFilter.trim())
   }
+
+  const response = await fetch(url.toString(), {
+    headers: {
+      'X-User-ID': getClientUserId(),
+    },
+  })
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}))
+    const errorMessage = errorData?.message || `API error: ${response.status}`
+    throw new Error(errorMessage)
+  }
+
+  return response.json()
+}
+
+export async function getChapterMastery(): Promise<ApiEnvelope<ChapterMasteryData>> {
+  const url = new URL(`${API_BASE}/review/chapter-mastery`, window.location.origin)
 
   const response = await fetch(url.toString(), {
     headers: {

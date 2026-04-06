@@ -2,7 +2,14 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useQuizStore } from '../stores/quiz'
-import { getWrongAnswers, type WrongAnswerNodeGroup } from '../api/review'
+import {
+  getChapterMastery,
+  getWrongAnswers,
+  type ChapterMasteryData,
+  type ChapterMasteryItem,
+  type WrongAnswerNodeGroup,
+} from '../api/review'
+import { masteryPercent } from '../components/graph/mastery'
 
 const router = useRouter()
 const quizStore = useQuizStore()
@@ -10,8 +17,14 @@ const quizStore = useQuizStore()
 const isLoading = ref(true)
 const errorMessage = ref('')
 const wrongAnswerGroups = ref<WrongAnswerNodeGroup[]>([])
+const chapterMastery = ref<ChapterMasteryItem[]>([])
+const chapterMasterySummary = ref<ChapterMasteryData['summary'] | null>(null)
 const activeNodeId = ref<string | null>(null)
 const expandedNodeIds = ref(new Set<string>())
+
+const overallMasteryPercent = computed(() => {
+  return masteryPercent(chapterMasterySummary.value?.overall_mastery_score)
+})
 
 const summary = computed(() => ({
   total_wrong_count: wrongAnswerGroups.value.reduce((sum, group) => sum + group.total_errors, 0),
@@ -59,14 +72,25 @@ function formatDate(value: string): string {
 
 onMounted(async () => {
   try {
-    const response = await getWrongAnswers()
-    if (response.status === 'success' && response.data) {
-      wrongAnswerGroups.value = response.data.by_node
+    const wrongAnswerResp = await getWrongAnswers()
+    if (wrongAnswerResp.status === 'success' && wrongAnswerResp.data) {
+      wrongAnswerGroups.value = wrongAnswerResp.data.by_node
     } else {
-      errorMessage.value = response.message || 'Failed to load review notebook'
+      errorMessage.value = wrongAnswerResp.message || 'Failed to load review notebook'
     }
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : 'Failed to load review notebook'
+  }
+
+  try {
+    const masteryResp = await getChapterMastery()
+    if (masteryResp.status === 'success' && masteryResp.data) {
+      chapterMastery.value = masteryResp.data.by_parent
+      chapterMasterySummary.value = masteryResp.data.summary
+    }
+  } catch {
+    chapterMastery.value = []
+    chapterMasterySummary.value = null
   } finally {
     isLoading.value = false
   }
@@ -112,6 +136,31 @@ onMounted(async () => {
         </div>
 
         <div class="px-6 py-6 sm:px-8">
+          <section class="mb-6 rounded-2xl border border-emerald-200/60 bg-emerald-50/70 p-4">
+            <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h2 class="text-sm font-bold uppercase tracking-[0.18em] text-emerald-700">Mastery Snapshot</h2>
+                <p class="mt-1 text-sm text-emerald-900">Overall chapter mastery: {{ overallMasteryPercent }}%</p>
+              </div>
+              <div class="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-700">
+                {{ chapterMastery.length }} chapters
+              </div>
+            </div>
+
+            <div v-if="chapterMastery.length" class="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+              <div
+                v-for="chapter in chapterMastery"
+                :key="chapter.parent_id"
+                class="rounded-xl border border-emerald-200 bg-white px-3 py-2"
+              >
+                <div class="truncate text-sm font-semibold text-slate-900">{{ chapter.parent_label }}</div>
+                <div class="mt-1 text-xs text-slate-600">{{ masteryPercent(chapter.mastery_score) }}% • {{ chapter.correct_count }}/{{ chapter.attempted_count }}</div>
+              </div>
+            </div>
+
+            <p v-else class="mt-2 text-sm text-emerald-800">Mastery snapshot unavailable yet</p>
+          </section>
+
           <div v-if="isLoading" class="flex min-h-[18rem] items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-slate-50 text-slate-500">
             Loading wrong-answer notebook...
           </div>

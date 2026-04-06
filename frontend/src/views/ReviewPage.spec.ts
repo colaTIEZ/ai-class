@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
   getWrongAnswers: vi.fn(),
+  getChapterMastery: vi.fn(),
   push: vi.fn(),
   clearSelection: vi.fn(),
   toggleNodeSelection: vi.fn(),
@@ -10,6 +11,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('../api/review', () => ({
   getWrongAnswers: mocks.getWrongAnswers,
+  getChapterMastery: mocks.getChapterMastery,
 }))
 
 vi.mock('vue-router', () => ({
@@ -39,6 +41,7 @@ function mountReviewPage() {
 
 beforeEach(() => {
   mocks.getWrongAnswers.mockReset()
+  mocks.getChapterMastery.mockReset()
   mocks.push.mockReset()
   mocks.clearSelection.mockReset()
   mocks.toggleNodeSelection.mockReset()
@@ -113,6 +116,28 @@ describe('ReviewPage', () => {
       message: '',
       trace_id: 'trace-1',
     })
+    mocks.getChapterMastery.mockResolvedValue({
+      status: 'success',
+      data: {
+        by_parent: [
+          {
+            parent_id: 'chapter-1',
+            parent_label: 'Chapter 1',
+            attempted_count: 3,
+            correct_count: 2,
+            mastery_score: 2 / 3,
+          },
+        ],
+        summary: {
+          total_parents: 1,
+          total_attempted: 3,
+          total_correct: 2,
+          overall_mastery_score: 2 / 3,
+        },
+      },
+      message: '',
+      trace_id: 'trace-2',
+    })
 
     const wrapper = mountReviewPage()
     await flushPromises()
@@ -121,6 +146,8 @@ describe('ReviewPage', () => {
     expect(wrapper.text()).toContain('Derivative basics')
     expect(wrapper.text()).toContain('Integral basics')
     expect(wrapper.text()).toContain('3')
+    expect(wrapper.text()).toContain('Chapter 1')
+    expect(wrapper.text()).toContain('67%')
 
     const nodeButtons = wrapper.findAll('button')
     await nodeButtons[1].trigger('click')
@@ -165,6 +192,20 @@ describe('ReviewPage', () => {
       message: '',
       trace_id: 'trace-1',
     })
+    mocks.getChapterMastery.mockResolvedValue({
+      status: 'success',
+      data: {
+        by_parent: [],
+        summary: {
+          total_parents: 0,
+          total_attempted: 0,
+          total_correct: 0,
+          overall_mastery_score: 0,
+        },
+      },
+      message: '',
+      trace_id: 'trace-2',
+    })
 
     const wrapper = mountReviewPage()
     await flushPromises()
@@ -177,5 +218,39 @@ describe('ReviewPage', () => {
     expect(mocks.clearSelection).toHaveBeenCalled()
     expect(mocks.toggleNodeSelection).toHaveBeenCalledWith('node-a', true)
     expect(mocks.push).toHaveBeenCalledWith('/quiz')
+  })
+
+  it('shows fallback when mastery payload is empty', async () => {
+    mocks.getWrongAnswers.mockResolvedValue({
+      status: 'success',
+      data: {
+        by_node: [],
+        summary: {
+          total_wrong_count: 0,
+          total_nodes_with_errors: 0,
+        },
+      },
+      message: '',
+      trace_id: 'trace-1',
+    })
+    mocks.getChapterMastery.mockResolvedValue({
+      status: 'success',
+      data: {
+        by_parent: [],
+        summary: {
+          total_parents: 0,
+          total_attempted: 0,
+          total_correct: 0,
+          overall_mastery_score: 0,
+        },
+      },
+      message: '',
+      trace_id: 'trace-2',
+    })
+
+    const wrapper = mountReviewPage()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Mastery snapshot unavailable yet')
   })
 })
