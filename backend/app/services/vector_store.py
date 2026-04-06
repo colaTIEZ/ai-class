@@ -84,6 +84,21 @@ def init_db(conn: Optional[sqlite3.Connection] = None) -> sqlite3.Connection:
         );
     """)
 
+    # Backward-compatible migrations for documents table
+    doc_columns = {
+        row["name"]
+        for row in conn.execute("PRAGMA table_info(documents)").fetchall()
+    }
+    if "file_hash" not in doc_columns:
+        conn.execute("ALTER TABLE documents ADD COLUMN file_hash TEXT")
+    if "source_job_id" not in doc_columns:
+        conn.execute("ALTER TABLE documents ADD COLUMN source_job_id TEXT")
+
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_documents_file_hash_status "
+        "ON documents(file_hash, status, updated_at)"
+    )
+
     # 文档处理队列任务表 (Single Source of Truth)
     conn.execute("""
         CREATE TABLE IF NOT EXISTS document_tasks (
@@ -200,13 +215,29 @@ def insert_embeddings(conn: sqlite3.Connection, embeddings_data: list[tuple[str,
         embeddings_data: list of tuples (node_id, embedding_vector)
     """
     import json
-    # sqlite-vec can parse JSON arrays into float vectors via cast
+
+    normalized_rows: list[tuple[str, str]] = []
+    for node_id, vec in embeddings_data:
+        # Some providers may return wrapper objects or non-list sequences.
+        # Normalize to a plain JSON float array that sqlite-vec accepts.
+        if isinstance(vec, dict) and "embedding" in vec:
+            vec = vec["embedding"]
+
+        if not isinstance(vec, (list, tuple)):
+            raise ValueError(
+                f"Invalid embedding payload for node_id={node_id}: expected list/tuple, got {type(vec).__name__}"
+            )
+
+        normalized_vec = [float(x) for x in vec]
+        normalized_rows.append((node_id, json.dumps(normalized_vec, ensure_ascii=False, separators=(",", ":"))))
+
+    # sqlite-vec supports TEXT JSON arrays directly for vector columns.
     conn.executemany(
         """
-        INSERT INTO vec_embeddings(node_id, embedding) 
-        VALUES (?, cast(? as float[1536]))
+        INSERT INTO vec_embeddings(node_id, embedding)
+        VALUES (?, ?)
         """,
-        [(node_id, json.dumps(vec)) for node_id, vec in embeddings_data]
+        normalized_rows,
     )
     conn.commit()
 
@@ -222,6 +253,39 @@ def get_document_nodes(conn: sqlite3.Connection, document_id: int) -> list[sqlit
         (document_id,)
     )
     return cursor.fetchall()
+
+
+def get_recent_document_ids(conn: sqlite3.Connection, limit: int = 10) -> list[int]:
+    """Return recent document IDs that actually have extracted nodes."""
+    cursor = conn.execute(
+        """
+        SELECT document_id
+        FROM knowledge_nodes
+        GROUP BY document_id
+        ORDER BY MAX(created_at) DESC
+        LIMIT ?
+        """,
+        (limit,),
+    )
+    return [int(row[0]) for row in cursor.fetchall()]
+
+
+def find_existing_document_by_hash(conn: sqlite3.Connection, file_hash: str) -> int | None:
+    """Find latest completed document id by file hash for soft de-duplication."""
+    row = conn.execute(
+        """
+        SELECT id
+        FROM documents
+        WHERE file_hash = ?
+          AND status = 'done'
+        ORDER BY updated_at DESC
+        LIMIT 1
+        """,
+        (file_hash,),
+    ).fetchone()
+    if not row:
+        return None
+    return int(row[0])
 
 
 def get_descendant_node_ids(conn: sqlite3.Connection, node_ids: list[str]) -> list[str]:

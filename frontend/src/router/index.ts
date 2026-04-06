@@ -6,7 +6,17 @@ const router = createRouter({
     {
       path: '/',
       name: 'home',
-      redirect: '/documents/1', // default mock route for current epic testing
+      redirect: '/upload',
+    },
+    {
+      path: '/upload',
+      name: 'upload',
+      component: () => import('../views/UploadView.vue'),
+    },
+    {
+      path: '/documents',
+      name: 'documents-entry',
+      component: () => import('../views/DocumentsEntryView.vue'),
     },
     {
       path: '/documents/:id',

@@ -4,15 +4,21 @@ import asyncio
 import sqlite3
 import uuid
 import logging
+import hashlib
 from pathlib import Path
-from fastapi import APIRouter, UploadFile, File, status
+from fastapi import APIRouter, UploadFile, File, Query, status
 
 from app.core.config import settings
 from app.services.processing_queue import processing_queue
 from app.schemas.queue import QueueResponse, QueueItemData
 from app.core.exceptions import AppException
 from app.schemas.knowledge_tree import KnowledgeTree, KnowledgeNode
-from app.services.vector_store import get_connection, get_document_nodes
+from app.services.vector_store import (
+    get_connection,
+    get_document_nodes,
+    get_recent_document_ids,
+    find_existing_document_by_hash,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +46,7 @@ def sync_save_file(temp_path: Path, content: bytes):
         )
 
 @router.post("/upload", status_code=status.HTTP_202_ACCEPTED, response_model=QueueResponse)
-async def upload_document(file: UploadFile = File(...)):
+async def upload_document(file: UploadFile = File(...), force: bool = Query(default=False)):
     """上传 PDF 并加入全局单例处理队列"""
     if not settings.embedding_ready:
         raise AppException(
@@ -79,9 +85,50 @@ async def upload_document(file: UploadFile = File(...)):
     try:
         # 读取到内存
         content = await file.read()
+        file_hash = hashlib.sha256(content).hexdigest()
+
+        def _find_existing_doc_id() -> int | None:
+            conn = get_connection()
+            try:
+                return find_existing_document_by_hash(conn, file_hash)
+            finally:
+                conn.close()
+
+        if not force:
+            existing_document_id = await asyncio.to_thread(_find_existing_doc_id)
+            if existing_document_id is not None:
+                return QueueResponse(
+                    data=QueueItemData(
+                        job_id=job_id,
+                        status="duplicate",
+                        position=0,
+                        duplicated=True,
+                        existing_document_id=existing_document_id,
+                    ),
+                    message="Duplicate file detected. Reuse existing document or force upload.",
+                )
         
         # 将阻塞磁盘 IO 移交独立线程
         await asyncio.to_thread(sync_save_file, temp_path, content)
+
+        document_id = int(job_id.replace('-', '')[:8], 16)
+
+        def _insert_pending_document() -> None:
+            conn = get_connection()
+            try:
+                conn.execute(
+                    """
+                    INSERT OR REPLACE INTO documents(
+                        id, filename, file_size, status, total_nodes, file_hash, source_job_id, updated_at
+                    ) VALUES(?, ?, ?, 'pending', 0, ?, ?, (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')))
+                    """,
+                    (document_id, file.filename or f"{job_id}.pdf", file_size, file_hash, job_id),
+                )
+                conn.commit()
+            finally:
+                conn.close()
+
+        await asyncio.to_thread(_insert_pending_document)
             
         # 打包进内存队列 + DB SQLite 事实源
         position = await processing_queue.enqueue(job_id=job_id, file_path=str(temp_path))
@@ -90,7 +137,9 @@ async def upload_document(file: UploadFile = File(...)):
             data=QueueItemData(
                 job_id=job_id,
                 status="queued",
-                position=position
+                position=position,
+                duplicated=False,
+                existing_document_id=None,
             ),
             message="File accepted and queued for processing"
         )
@@ -162,3 +211,30 @@ async def get_document_tree(document_id: int):
     except Exception as e:
         logger.error(f"Failed to fetch tree for document {document_id}: {e}")
         raise AppException("Internal error while fetching knowledge tree.", status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@router.get("/recent")
+async def get_recent_documents(limit: int = 10):
+    """返回最近已完成抽取的文档 ID 列表。"""
+
+    def fetch_recent_ids(max_items: int):
+        conn = get_connection()
+        try:
+            return get_recent_document_ids(conn, limit=max_items)
+        finally:
+            conn.close()
+
+    safe_limit = min(max(limit, 1), 50)
+    try:
+        ids = await asyncio.to_thread(fetch_recent_ids, safe_limit)
+        return {
+            "status": "success",
+            "data": {
+                "document_ids": ids,
+            },
+            "message": "",
+            "trace_id": "",
+        }
+    except Exception as e:
+        logger.error(f"Failed to fetch recent documents: {e}")
+        raise AppException("Internal error while fetching recent documents.", status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)

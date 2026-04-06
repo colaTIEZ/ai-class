@@ -8,7 +8,9 @@
     <header class="w-full h-16 bg-white border-b border-slate-200 shadow-sm flex items-center px-6 fixed top-0 z-50">
       <div class="logo font-bold text-xl text-indigo-600 tracking-tight">AI-Class</div>
       <nav class="ml-8 space-x-4 text-sm font-medium text-slate-600">
-        <router-link to="/" class="hover:text-indigo-600 transition-colors">Study Material</router-link>
+        <router-link to="/upload" class="hover:text-indigo-600 transition-colors">Upload PDF</router-link>
+        <span class="text-slate-300">|</span>
+        <router-link to="/documents" class="hover:text-indigo-600 transition-colors">Study Material</router-link>
         <span class="text-slate-300">|</span>
         <router-link to="/review" class="hover:text-indigo-600 transition-colors">Review Notebook</router-link>
       </nav>

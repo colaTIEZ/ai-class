@@ -38,7 +38,7 @@ class ProcessingQueue:
             
         created_at = row["created_at"]
         count_row = conn.execute(
-            "SELECT count(job_id) as pos FROM document_tasks WHERE status = 0 AND created_at <= ? ORDER BY created_at ASC",
+            "SELECT count(job_id) as pos FROM document_tasks WHERE status IN (0, 1) AND created_at <= ? ORDER BY created_at ASC",
             (created_at,)
         ).fetchone()
         
@@ -144,6 +144,16 @@ class ProcessingQueue:
                             batch = nodes[i:i+batch_size]
                             embeddings_data = generate_embeddings(batch)
                             insert_embeddings(conn, embeddings_data)
+
+                        conn.execute(
+                            """
+                            UPDATE documents
+                            SET status = 'done', total_nodes = ?, updated_at = (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+                            WHERE id = ?
+                            """,
+                            (len(nodes), doc_id),
+                        )
+                        conn.commit()
                             
                     finally:
                         conn.close()
@@ -162,6 +172,23 @@ class ProcessingQueue:
                 # Catching BaseException as requested by patch finding
                 logger.error(f"Error processing job {job_id}: {e}")
                 try:
+                    def _mark_document_error(j_id: str):
+                        conn = get_connection()
+                        try:
+                            doc_id = int(j_id.replace('-', '')[:8], 16)
+                            conn.execute(
+                                """
+                                UPDATE documents
+                                SET status = 'error', updated_at = (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+                                WHERE id = ?
+                                """,
+                                (doc_id,),
+                            )
+                            conn.commit()
+                        finally:
+                            conn.close()
+
+                    await asyncio.to_thread(_mark_document_error, job_id)
                     await asyncio.to_thread(
                         _update_status,
                         job_id,
