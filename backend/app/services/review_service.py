@@ -14,6 +14,7 @@ from app.schemas.review import (
     ChapterMasteryData,
     ChapterMasteryItem,
     ChapterMasterySummary,
+    InvalidateQuestionData,
     WrongAnswerNodeGroup,
     WrongAnswerQuestion,
     WrongAnswersData,
@@ -66,10 +67,18 @@ def init_review_tables(conn: sqlite3.Connection) -> None:
             attempted_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
             is_invalidated INTEGER NOT NULL DEFAULT 0,
             invalidation_reason TEXT,
+            invalidated_at TEXT,
             FOREIGN KEY (attempt_id) REFERENCES quiz_attempts(attempt_id),
             FOREIGN KEY (node_id) REFERENCES knowledge_nodes(node_id)
         );
         """
+    )
+
+    _ensure_column(
+        conn,
+        table_name="question_history",
+        column_name="invalidated_at",
+        column_type="TEXT",
     )
 
     conn.execute(
@@ -104,6 +113,22 @@ def _connection_identity(conn: sqlite3.Connection) -> str:
     except Exception:  # pragma: no cover - defensive fallback
         pass
     return f"conn:{id(conn)}"
+
+
+def _ensure_column(
+    conn: sqlite3.Connection,
+    *,
+    table_name: str,
+    column_name: str,
+    column_type: str,
+) -> None:
+    """Add a column to an existing SQLite table if it does not exist."""
+
+    table_info = conn.execute(f"PRAGMA table_info({table_name});").fetchall()
+    columns = {str(row[1]) for row in table_info}
+    if column_name in columns:
+        return
+    conn.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_type}")
 
 
 def ensure_review_tables_ready(conn: sqlite3.Connection) -> None:
@@ -367,6 +392,122 @@ def get_chapter_mastery(
                 total_correct=total_correct,
                 overall_mastery_score=overall_mastery_score,
             ),
+        )
+    finally:
+        if own_connection:
+            connection.close()
+
+
+def invalidate_question_record(
+    *,
+    user_id: str,
+    question_record_id: str,
+    reason: Optional[str] = None,
+    conn: Optional[sqlite3.Connection] = None,
+) -> InvalidateQuestionData:
+    """Mark one question record invalidated for the owning user.
+
+    This operation is idempotent. Repeating invalidation on an already invalidated
+    record returns success with `already_invalidated=True`.
+    """
+
+    own_connection = conn is None
+    connection = conn or get_connection()
+    try:
+        ensure_review_tables_ready(connection)
+        row = connection.execute(
+            """
+            SELECT is_invalidated, invalidated_at
+            FROM question_history
+            WHERE question_record_id = ?
+              AND user_id = ?
+            """,
+            (question_record_id, user_id),
+        ).fetchone()
+
+        if row is None:
+            return InvalidateQuestionData(
+                question_record_id=question_record_id,
+                found=False,
+                updated=False,
+                already_invalidated=False,
+                invalidated_at=None,
+            )
+
+        is_invalidated = int(row[0]) == 1
+        existing_invalidated_at = str(row[1]) if row[1] is not None else None
+        if is_invalidated:
+            return InvalidateQuestionData(
+                question_record_id=question_record_id,
+                found=True,
+                updated=False,
+                already_invalidated=True,
+                invalidated_at=existing_invalidated_at,
+            )
+
+        invalidated_at = _utc_now_iso()
+        cursor = connection.execute(
+            """
+            UPDATE question_history
+            SET is_invalidated = 1,
+                invalidation_reason = COALESCE(?, invalidation_reason),
+                invalidated_at = ?
+            WHERE question_record_id = ?
+              AND user_id = ?
+              AND is_invalidated = 0
+            """,
+            (reason, invalidated_at, question_record_id, user_id),
+        )
+        updated_rows = int(cursor.rowcount)
+        if updated_rows == 1:
+            connection.commit()
+            return InvalidateQuestionData(
+                question_record_id=question_record_id,
+                found=True,
+                updated=True,
+                already_invalidated=False,
+                invalidated_at=invalidated_at,
+            )
+
+        # Another request can invalidate the row between our SELECT and UPDATE.
+        # Re-read row state to preserve idempotent semantics under race conditions.
+        row_after_update = connection.execute(
+            """
+            SELECT is_invalidated, invalidated_at
+            FROM question_history
+            WHERE question_record_id = ?
+              AND user_id = ?
+            """,
+            (question_record_id, user_id),
+        ).fetchone()
+
+        if row_after_update is None:
+            return InvalidateQuestionData(
+                question_record_id=question_record_id,
+                found=False,
+                updated=False,
+                already_invalidated=False,
+                invalidated_at=None,
+            )
+
+        after_invalidated = int(row_after_update[0]) == 1
+        after_invalidated_at = str(row_after_update[1]) if row_after_update[1] is not None else None
+        if after_invalidated:
+            return InvalidateQuestionData(
+                question_record_id=question_record_id,
+                found=True,
+                updated=False,
+                already_invalidated=True,
+                invalidated_at=after_invalidated_at,
+            )
+
+        connection.commit()
+        return InvalidateQuestionData(
+            question_record_id=question_record_id,
+            found=True,
+            updated=False,
+            already_invalidated=False,
+            invalidated_at=None,
         )
     finally:
         if own_connection:

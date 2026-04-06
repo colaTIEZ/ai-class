@@ -8,6 +8,7 @@ from app.schemas.review import (
     ChapterMasteryData,
     ChapterMasteryItem,
     ChapterMasterySummary,
+    InvalidateQuestionData,
     WrongAnswerNodeGroup,
     WrongAnswerQuestion,
     WrongAnswersData,
@@ -121,3 +122,101 @@ class TestReviewApi:
         assert data['data']['by_parent'][0]['attempted_count'] == 3
         assert data['data']['summary']['total_parents'] == 1
         mock_service.assert_called_once_with(user_id='user-1')
+
+    def test_invalidate_requires_user_header(self):
+        client = TestClient(app)
+        response = client.post(
+            '/api/v1/review/invalidate',
+            json={'question_record_id': 'q-1', 'reason': 'hallucinated'},
+        )
+
+        assert response.status_code == 400
+        data = response.json()
+        assert data['status'] == 'error'
+        assert data['message'] == 'Missing X-User-ID header'
+
+    def test_invalidate_returns_not_found_for_wrong_owner(self):
+        client = TestClient(app)
+        payload = InvalidateQuestionData(
+            question_record_id='q-1',
+            found=False,
+            updated=False,
+            already_invalidated=False,
+            invalidated_at=None,
+        )
+
+        with patch('app.api.v1.review.invalidate_question_record', return_value=payload):
+            response = client.post(
+                '/api/v1/review/invalidate',
+                headers={'X-User-ID': 'user-1'},
+                json={'question_record_id': 'q-1', 'reason': 'hallucinated'},
+            )
+
+        assert response.status_code == 404
+        data = response.json()
+        assert data['status'] == 'error'
+
+    def test_invalidate_success_response(self):
+        client = TestClient(app)
+        payload = InvalidateQuestionData(
+            question_record_id='q-1',
+            found=True,
+            updated=True,
+            already_invalidated=False,
+            invalidated_at='2026-04-06T12:00:00Z',
+        )
+
+        with patch('app.api.v1.review.invalidate_question_record', return_value=payload) as mock_service:
+            response = client.post(
+                '/api/v1/review/invalidate',
+                headers={'X-User-ID': 'user-1'},
+                json={'question_record_id': 'q-1', 'reason': 'hallucinated'},
+            )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data['status'] == 'success'
+        assert data['data']['question_record_id'] == 'q-1'
+        assert data['data']['updated'] is True
+        assert data['data']['already_invalidated'] is False
+        mock_service.assert_called_once_with(
+            user_id='user-1',
+            question_record_id='q-1',
+            reason='hallucinated',
+        )
+
+    def test_invalidate_already_invalidated_is_idempotent_success(self):
+        client = TestClient(app)
+        payload = InvalidateQuestionData(
+            question_record_id='q-1',
+            found=True,
+            updated=False,
+            already_invalidated=True,
+            invalidated_at='2026-04-06T12:00:00Z',
+        )
+
+        with patch('app.api.v1.review.invalidate_question_record', return_value=payload):
+            response = client.post(
+                '/api/v1/review/invalidate',
+                headers={'X-User-ID': 'user-1'},
+                json={'question_record_id': 'q-1', 'reason': 'duplicate'},
+            )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data['status'] == 'success'
+        assert data['data']['updated'] is False
+        assert data['data']['already_invalidated'] is True
+
+    def test_invalidate_rejects_blank_question_record_id(self):
+        client = TestClient(app)
+        response = client.post(
+            '/api/v1/review/invalidate',
+            headers={'X-User-ID': 'user-1'},
+            json={'question_record_id': '   ', 'reason': 'blank id'},
+        )
+
+        assert response.status_code == 400
+        data = response.json()
+        assert data['status'] == 'error'
+        assert data['message'] == 'question_record_id must not be blank'

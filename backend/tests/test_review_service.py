@@ -1,7 +1,10 @@
 import tempfile
+from concurrent.futures import ThreadPoolExecutor
+from threading import Barrier
 
 from app.services.review_service import (
     get_chapter_mastery,
+    invalidate_question_record,
     get_wrong_answers_by_node,
     record_answer,
 )
@@ -9,6 +12,172 @@ from app.services.vector_store import get_connection, init_db
 
 
 class TestReviewService:
+    def test_invalidate_question_record_is_idempotent_under_concurrency(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = f"{tmpdir}/review.db"
+            setup_conn = get_connection(db_path)
+            init_db(setup_conn)
+            setup_conn.execute(
+                """
+                INSERT INTO knowledge_nodes (node_id, document_id, label, parent_id, content_summary, depth, chunk_text)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                ("node-a", 1, "Derivative basics", None, "Derivative basics", 0, "content"),
+            )
+            setup_conn.commit()
+
+            record_id = record_answer(
+                user_id="user-1",
+                node_id="node-a",
+                question_text="Q1",
+                user_answer="wrong-1",
+                correct_answer="right-1",
+                is_correct=False,
+                error_type="logic_gap",
+                conn=setup_conn,
+            )
+            setup_conn.close()
+
+            barrier = Barrier(2)
+
+            def call_invalidate():
+                conn = get_connection(db_path)
+                try:
+                    barrier.wait()
+                    return invalidate_question_record(
+                        user_id="user-1",
+                        question_record_id=record_id,
+                        reason="concurrent-report",
+                        conn=conn,
+                    )
+                finally:
+                    conn.close()
+
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                first_future = executor.submit(call_invalidate)
+                second_future = executor.submit(call_invalidate)
+                first_result = first_future.result()
+                second_result = second_future.result()
+
+            updated_count = int(first_result.updated) + int(second_result.updated)
+            already_count = int(first_result.already_invalidated) + int(second_result.already_invalidated)
+            assert updated_count == 1
+            assert already_count == 1
+
+            verify_conn = get_connection(db_path)
+            row = verify_conn.execute(
+                "SELECT is_invalidated, invalidated_at FROM question_history WHERE question_record_id = ?",
+                (record_id,),
+            ).fetchone()
+            assert row is not None
+            assert int(row[0]) == 1
+            assert isinstance(row[1], str)
+            verify_conn.close()
+
+    def test_invalidate_question_record_success_and_idempotent(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            conn = get_connection(f"{tmpdir}/review.db")
+            init_db(conn)
+            conn.execute(
+                """
+                INSERT INTO knowledge_nodes (node_id, document_id, label, parent_id, content_summary, depth, chunk_text)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                ("node-a", 1, "Derivative basics", None, "Derivative basics", 0, "content"),
+            )
+            conn.commit()
+
+            record_id = record_answer(
+                user_id="user-1",
+                node_id="node-a",
+                question_text="Q1",
+                user_answer="wrong-1",
+                correct_answer="right-1",
+                is_correct=False,
+                error_type="logic_gap",
+                conn=conn,
+            )
+
+            first_result = invalidate_question_record(
+                user_id="user-1",
+                question_record_id=record_id,
+                reason="hallucinated answer",
+                conn=conn,
+            )
+            second_result = invalidate_question_record(
+                user_id="user-1",
+                question_record_id=record_id,
+                reason="duplicate report",
+                conn=conn,
+            )
+
+            assert first_result.updated is True
+            assert first_result.already_invalidated is False
+            assert second_result.updated is False
+            assert second_result.already_invalidated is True
+
+            row = conn.execute(
+                """
+                SELECT is_invalidated, invalidation_reason, invalidated_at
+                FROM question_history
+                WHERE question_record_id = ?
+                """,
+                (record_id,),
+            ).fetchone()
+
+            assert row is not None
+            assert int(row[0]) == 1
+            assert row[1] == "hallucinated answer"
+            assert isinstance(row[2], str)
+            assert row[2].endswith("Z")
+
+            conn.close()
+
+    def test_invalidate_question_record_rejects_wrong_owner(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            conn = get_connection(f"{tmpdir}/review.db")
+            init_db(conn)
+            conn.execute(
+                """
+                INSERT INTO knowledge_nodes (node_id, document_id, label, parent_id, content_summary, depth, chunk_text)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                ("node-a", 1, "Derivative basics", None, "Derivative basics", 0, "content"),
+            )
+            conn.commit()
+
+            record_id = record_answer(
+                user_id="owner-user",
+                node_id="node-a",
+                question_text="Q1",
+                user_answer="wrong-1",
+                correct_answer="right-1",
+                is_correct=False,
+                error_type="logic_gap",
+                conn=conn,
+            )
+
+            result = invalidate_question_record(
+                user_id="other-user",
+                question_record_id=record_id,
+                reason="not owner",
+                conn=conn,
+            )
+
+            assert result.found is False
+            assert result.updated is False
+            assert result.already_invalidated is False
+
+            row = conn.execute(
+                "SELECT is_invalidated, invalidation_reason FROM question_history WHERE question_record_id = ?",
+                (record_id,),
+            ).fetchone()
+            assert row is not None
+            assert int(row[0]) == 0
+            assert row[1] is None
+
+            conn.close()
+
     def test_get_chapter_mastery_returns_empty_summary_when_no_attempts(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             conn = get_connection(f"{tmpdir}/review.db")
@@ -394,5 +563,55 @@ class TestReviewService:
             assert result.by_parent[0].attempted_count == 3
             assert result.by_parent[0].correct_count == 3
             assert result.by_parent[0].mastery_score == 1
+
+            conn.close()
+
+    def test_get_chapter_mastery_returns_empty_when_all_records_invalidated(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            conn = get_connection(f"{tmpdir}/review.db")
+            init_db(conn)
+            conn.executemany(
+                """
+                INSERT INTO knowledge_nodes (node_id, document_id, label, parent_id, content_summary, depth, chunk_text)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    ("chapter-1", 1, "Chapter 1", None, "c1", 0, "c1"),
+                    ("n-1", 1, "Node 1", "chapter-1", "n1", 1, "n1"),
+                ],
+            )
+            conn.commit()
+
+            record_id = record_answer(
+                user_id="user-1",
+                node_id="n-1",
+                question_text="Q1",
+                user_answer="wrong",
+                correct_answer="right",
+                is_correct=False,
+                error_type="logic_gap",
+                conn=conn,
+            )
+
+            invalidation = invalidate_question_record(
+                user_id="user-1",
+                question_record_id=record_id,
+                reason="hallucinated",
+                conn=conn,
+            )
+            assert invalidation.updated is True
+
+            mastery = get_chapter_mastery(user_id="user-1", conn=conn)
+            wrong_answers = get_wrong_answers_by_node(user_id="user-1", conn=conn)
+
+            assert mastery.by_parent == []
+            assert mastery.summary.total_parents == 0
+            assert mastery.summary.total_attempted == 0
+            assert mastery.summary.total_correct == 0
+            assert mastery.summary.overall_mastery_score == 0
+
+            assert wrong_answers.by_node == []
+            assert wrong_answers.summary.total_wrong_count == 0
+            assert wrong_answers.summary.total_nodes_with_errors == 0
 
             conn.close()

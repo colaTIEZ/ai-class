@@ -94,3 +94,29 @@ class ChapterMasteryResponse(BaseModel):
     data: Optional[ChapterMasteryData] = Field(default=None)
     message: str = Field(default="")
     trace_id: str = Field(default="")
+
+
+class InvalidateQuestionRequest(BaseModel):
+    """Request payload to invalidate one question record."""
+
+    question_record_id: str = Field(..., min_length=1)
+    reason: Optional[str] = Field(default=None, max_length=500)
+
+
+class InvalidateQuestionData(BaseModel):
+    """Mutation result details for an invalidation request."""
+
+    question_record_id: str = Field(...)
+    found: bool = Field(...)
+    updated: bool = Field(...)
+    already_invalidated: bool = Field(...)
+    invalidated_at: Optional[str] = Field(default=None)
+
+
+class InvalidateQuestionResponse(BaseModel):
+    """Standard response envelope for question invalidation."""
+
+    status: Literal["success", "error"] = Field(default="success")
+    data: Optional[InvalidateQuestionData] = Field(default=None)
+    message: str = Field(default="")
+    trace_id: str = Field(default="")
