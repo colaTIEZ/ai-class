@@ -3,6 +3,7 @@ import re
 import time
 import fitz
 import logging
+import requests
 from fastapi import status
 from typing import Generator, List, Dict, Any
 from app.schemas.knowledge_tree import KnowledgeNodeInDB
@@ -11,6 +12,69 @@ from app.core.config import settings
 from app.core.exceptions import AppException
 
 logger = logging.getLogger(__name__)
+
+
+def _embedding_model_candidates() -> List[str]:
+    """Build ordered unique embedding model candidates from settings."""
+    candidates: List[str] = []
+
+    # 1) Explicit embedding model always wins
+    if settings.openai_embedding_model:
+        candidates.append(settings.openai_embedding_model.strip())
+
+    # 2) If user puts an embedding model into openai_model, allow it as backup
+    if settings.openai_model and "embedding" in settings.openai_model:
+        candidates.append(settings.openai_model.strip())
+
+    # 3) Optional fallback model from config
+    if settings.openai_embedding_fallback_model:
+        candidates.append(settings.openai_embedding_fallback_model.strip())
+
+    # 4) Safe default fallback to keep backward compatibility
+    candidates.append("text-embedding-v2")
+
+    # Unique + non-empty preserving order
+    deduped: List[str] = []
+    for model in candidates:
+        if model and model not in deduped:
+            deduped.append(model)
+    return deduped
+
+
+def _is_model_not_found_error(exc: Exception) -> bool:
+    message = str(exc).lower()
+    return "model_not_found" in message or "does not exist" in message
+
+def _generate_embeddings_dashscope(texts: List[str], model_name: str) -> List[List[float]]:
+    """直接调用阿里云 DashScope embedding API,使用正确的参数格式。
+
+    Args:
+        texts: 需要生成嵌入的文本列表
+        model_name: 模型名称 (如 text-embedding-v1/v2/v3)
+
+    Returns:
+        嵌入向量列表
+    """
+    api_url = f"{settings.openai_base_url}/embeddings"
+
+    headers = {
+        "Authorization": f"Bearer {settings.openai_api_key}",
+        "Content-Type": "application/json",
+    }
+
+    # DashScope 期望的格式: input 是字符串或字符串数组
+    payload = {
+        "model": model_name,
+        "input": texts,
+    }
+
+    response = requests.post(api_url, json=payload, headers=headers, timeout=60)
+    response.raise_for_status()
+
+    result = response.json()
+    # DashScope 返回格式: {"data": [{"embedding": [...], "index": 0}, ...]}
+    embeddings = [item["embedding"] for item in sorted(result["data"], key=lambda x: x["index"])]
+    return embeddings
 
 def generate_embeddings(nodes: List[KnowledgeNodeInDB]) -> List[tuple[str, List[float]]]:
     """Generate OpenAI embeddings for chunks."""
@@ -21,31 +85,70 @@ def generate_embeddings(nodes: List[KnowledgeNodeInDB]) -> List[tuple[str, List[
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
         )
         
-    try:
-        embeddings_model = OpenAIEmbeddings(
-            openai_api_key=settings.openai_api_key,
-            openai_api_base=settings.openai_base_url or None,
-            model=settings.openai_model if "embedding" in settings.openai_model else "text-embedding-3-small"
-        )
-        texts = [node.chunk_text for node in nodes if node.chunk_text]
-        node_ids = [node.node_id for node in nodes if node.chunk_text]
-        
-        if not texts:
-            return []
-            
-        for attempt in range(3):
-            try:
-                embeddings = embeddings_model.embed_documents(texts)
-                return list(zip(node_ids, embeddings))
-            except Exception as e_retry:
-                if attempt == 2:
-                    raise
-                logger.warning(f"Embedding retry {attempt + 1}: {e_retry}")
-                time.sleep(2 ** attempt)
+    texts = [node.chunk_text for node in nodes if node.chunk_text]
+    node_ids = [node.node_id for node in nodes if node.chunk_text]
+
+    if not texts:
         return []
-    except Exception as e:
-        logger.error(f"Failed to generate embeddings: {e}")
-        raise
+
+    candidates = _embedding_model_candidates()
+    last_exception: Exception | None = None
+
+    for model_name in candidates:
+        try:
+            # 检测是否使用阿里云 DashScope
+            is_dashscope = "dashscope" in (settings.openai_base_url or "").lower()
+
+            if is_dashscope:
+                # 使用 DashScope 兼容的 API 调用方式
+                for attempt in range(3):
+                    try:
+                        embeddings = _generate_embeddings_dashscope(texts, model_name)
+                        logger.info("成功使用模型 %s 生成 %d 个嵌入向量", model_name, len(embeddings))
+                        return list(zip(node_ids, embeddings))
+                    except Exception as e_retry:
+                        if attempt == 2:
+                            raise
+                        logger.warning("嵌入重试 %d (模型=%s): %s", attempt + 1, model_name, e_retry)
+                        time.sleep(2 ** attempt)
+            else:
+                # 对其他提供商使用标准的 LangChain OpenAIEmbeddings
+                embeddings_model = OpenAIEmbeddings(
+                    openai_api_key=settings.openai_api_key,
+                    openai_api_base=settings.openai_base_url or None,
+                    model=model_name,
+                )
+
+            for attempt in range(3):
+                try:
+                    embeddings = embeddings_model.embed_documents(texts)
+                    logger.info("Embeddings generated with model: %s", model_name)
+                    return list(zip(node_ids, embeddings))
+                except Exception as e_retry:
+                    # Retry transient errors on current model
+                    if attempt == 2:
+                        raise
+                    logger.warning("Embedding retry %s (model=%s): %s", attempt + 1, model_name, e_retry)
+                    time.sleep(2 ** attempt)
+
+        except Exception as e:
+            last_exception = e
+            if _is_model_not_found_error(e):
+                logger.warning("Embedding model unavailable, fallback to next candidate: %s", model_name)
+                continue
+            logger.error("Failed to generate embeddings with model %s: %s", model_name, e)
+            raise
+
+    model_list = ", ".join(candidates)
+    logger.error("All embedding models failed. tried=[%s], last_error=%s", model_list, last_exception)
+    raise AppException(
+        message=(
+            "No available embedding model for current provider. "
+            "Please set OPENAI_EMBEDDING_MODEL in backend/.env to a model your API key can access. "
+            f"Tried: {model_list}"
+        ),
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+    )
 
 def process_pdf_generator(file_path: str, chunk_size=1000, overlap=100) -> Generator[str, None, None]:
     """

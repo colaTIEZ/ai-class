@@ -22,7 +22,7 @@ env/
 *~
 
 # 环境变量与密钥
-.env
+backend/.env
 .env.*
 !.env.example
 
@@ -74,3 +74,5 @@ _bmad/
 .agent/
 _progress/
 
+backend/data/ai_class.db-shm
+backend/data/ai_class.db-wal
