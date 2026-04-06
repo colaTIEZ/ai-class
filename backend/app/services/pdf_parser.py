@@ -198,8 +198,9 @@ def process_pdf_generator(file_path: str, chunk_size=1000, overlap=100) -> Gener
 
 def extract_hierarchy(document_id: int, chunks: List[str]) -> List[KnowledgeNodeInDB]:
     """
-    Parses hierarchical structure heuristically with regex.
-    Chapter -> Section -> Chunk mappings mapped to 1.1 Schema.
+    Parses hierarchical structure heuristically with regex and fallback heuristics.
+    Creates a 3-level hierarchy: Root -> Auto-Chapter -> Chunks
+    Falls back to auto-grouping by content length heuristics if no explicit titles found.
     """
     nodes = []
     
@@ -222,13 +223,15 @@ def extract_hierarchy(document_id: int, chunks: List[str]) -> List[KnowledgeNode
     section_pattern = re.compile(r"^(第[一二三四五六七八九十百]+节|Section\s*\d+|\d+\.\d+)\s*[:：\s]?\s*(.*)", re.IGNORECASE)
 
     seq_counter = 1
+    auto_chapter_counter = 1
+    last_was_chapter = False
 
-    for chunk in chunks:
+    for chunk_idx, chunk in enumerate(chunks):
+        if not chunk.strip():
+            continue
+            
         lines = chunk.split('\n')
-        # Check first line of chunk to determine if it defines a new chapter/section
-        if not lines:
-             continue
-        first_line = lines[0].strip()[:100]  # Just looking at start
+        first_line = lines[0].strip()[:100]
         
         chapter_match = chapter_pattern.search(first_line)
         section_match = section_pattern.search(first_line)
@@ -237,38 +240,86 @@ def extract_hierarchy(document_id: int, chunks: List[str]) -> List[KnowledgeNode
         seq_counter += 1
 
         if chapter_match:
+            # Explicit chapter found
             label = chapter_match.group(2).strip()[:50]
             if not label:
                 label = chapter_match.group(1).strip()
             current_chapter_id = node_id
-            current_section_id = node_id # Reset section
+            current_section_id = node_id
             depth = 1
             parent_id = root_id
+            nodes.append(KnowledgeNodeInDB(
+                node_id=node_id,
+                document_id=document_id,
+                label=label,
+                parent_id=parent_id,
+                content_summary=chunk[:100] + "...",
+                depth=depth,
+                chunk_text=chunk
+            ))
+            last_was_chapter = True
         elif section_match:
+            # Explicit section found
             label = section_match.group(2).strip()[:50]
             if not label:
                 label = section_match.group(1).strip()
             current_section_id = node_id
             depth = 2
             parent_id = current_chapter_id
+            nodes.append(KnowledgeNodeInDB(
+                node_id=node_id,
+                document_id=document_id,
+                label=label,
+                parent_id=parent_id,
+                content_summary=chunk[:100] + "...",
+                depth=depth,
+                chunk_text=chunk
+            ))
+            last_was_chapter = False
         else:
-            # Regular chunk node
-            label = first_line[:30] + "..." if len(first_line) > 30 else first_line
-            if not label:
-                label = "Paragraph"
-            depth = 3
-            parent_id = current_section_id
-
-        summary = chunk[:100] + "..." if len(chunk) > 100 else chunk
-        
-        nodes.append(KnowledgeNodeInDB(
-            node_id=node_id,
-            document_id=document_id,
-            label=label,
-            parent_id=parent_id,
-            content_summary=summary,
-            depth=depth,
-            chunk_text=chunk
-        ))
+            # No explicit title: use heuristic to auto-create chapter if needed
+            # Criteria: very short lines likely indicate title or section break
+            is_likely_title = (
+                len(first_line) < 50 and 
+                len(first_line) > 3 and
+                not first_line.endswith(('。', '，', ',', '.', '!', '?', '？'))
+            )
+            
+            if is_likely_title and not last_was_chapter:
+                # Auto-create a chapter
+                auto_ch_node_id = f"doc_{document_id}_chapter_{auto_chapter_counter:03d}"
+                auto_chapter_counter += 1
+                auto_label = first_line[:40]
+                nodes.append(KnowledgeNodeInDB(
+                    node_id=auto_ch_node_id,
+                    document_id=document_id,
+                    label=auto_label,
+                    parent_id=root_id,
+                    content_summary=auto_label,
+                    depth=1,
+                    chunk_text=None
+                ))
+                current_chapter_id = auto_ch_node_id
+                current_section_id = auto_ch_node_id
+                parent_id = auto_ch_node_id
+                last_was_chapter = True
+            else:
+                parent_id = current_section_id
+                last_was_chapter = False
+            
+            # Add chunk node
+            label = first_line[:35] + "..." if len(first_line) > 35 else first_line
+            if not label or label.strip() == "。":
+                label = f"Paragraph {chunk_idx + 1}"
+            
+            nodes.append(KnowledgeNodeInDB(
+                node_id=node_id,
+                document_id=document_id,
+                label=label,
+                parent_id=parent_id,
+                content_summary=chunk[:100] + ("..." if len(chunk) > 100 else ""),
+                depth=3 if parent_id == current_section_id else 2,
+                chunk_text=chunk
+            ))
 
     return nodes

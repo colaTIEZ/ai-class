@@ -11,6 +11,7 @@ const props = defineProps<{
 }>();
 
 const containerRef = ref<HTMLElement | null>(null);
+const graphError = ref('');
 let graph: Graph | null = null;
 const quizStore = useQuizStore();
 
@@ -36,45 +37,86 @@ function getAllChildIds(startNodeId: string, nodes: KnowledgeNode[]): string[] {
   return result;
 }
 
-// Convert flat data to tree structure expected by AntV G6
-function buildTreeData(nodes: KnowledgeNode[]) {
-  const nodeMap = new Map<string, any>();
-  const roots: any[] = [];
+// Build plain graph data with deterministic coordinates, avoiding optional layout plugins.
+function buildGraphData(nodes: KnowledgeNode[]) {
+  const byParent = new Map<string | null, KnowledgeNode[]>();
+  const idSet = new Set(nodes.map((n) => n.node_id));
 
-  nodes.forEach(n => {
-    nodeMap.set(n.node_id, {
-      id: n.node_id,
-      label: n.label,
-      children: [],
-      data: n
-    });
-  });
-
-  nodes.forEach(n => {
-    const gn = nodeMap.get(n.node_id);
-    if (n.parent_id === null || !nodeMap.has(n.parent_id)) {
-      roots.push(gn);
-    } else {
-      const parent = nodeMap.get(n.parent_id);
-      parent.children.push(gn);
-    }
-  });
-
-  if (roots.length > 1) {
-    return {
-      id: 'root-container',
-      label: 'Course Outline',
-      children: roots
-    };
+  for (const n of nodes) {
+    const parentKey = n.parent_id && idSet.has(n.parent_id) ? n.parent_id : null;
+    const bucket = byParent.get(parentKey) ?? [];
+    bucket.push(n);
+    byParent.set(parentKey, bucket);
   }
 
-  return roots[0] || { id: 'empty', label: 'No Data' };
+  const levels = new Map<string, number>();
+  const ordered: KnowledgeNode[] = [];
+  const roots = byParent.get(null) ?? [];
+  const queue: Array<{ node: KnowledgeNode; depth: number }> = roots.map((node) => ({ node, depth: 0 }));
+
+  while (queue.length > 0) {
+    const current = queue.shift();
+    if (!current) break;
+    const { node, depth } = current;
+    if (levels.has(node.node_id)) continue;
+
+    levels.set(node.node_id, depth);
+    ordered.push(node);
+
+    const children = byParent.get(node.node_id) ?? [];
+    for (const child of children) {
+      queue.push({ node: child, depth: depth + 1 });
+    }
+  }
+
+  // Add any disconnected nodes to avoid missing render due to malformed parent links.
+  for (const n of nodes) {
+    if (!levels.has(n.node_id)) {
+      levels.set(n.node_id, 0);
+      ordered.push(n);
+    }
+  }
+
+  const layerIndex = new Map<number, number>();
+  const graphNodes = ordered.map((n) => {
+    const depth = levels.get(n.node_id) ?? 0;
+    const idx = layerIndex.get(depth) ?? 0;
+    layerIndex.set(depth, idx + 1);
+
+    return {
+      id: n.node_id,
+      label: n.label,
+      x: 180 + depth * 260,
+      y: 120 + idx * 92,
+      data: n as unknown as Record<string, unknown>,
+    };
+  });
+
+  const graphEdges = nodes
+    .filter((n) => n.parent_id && idSet.has(n.parent_id))
+    .map((n) => ({
+      source: n.parent_id as string,
+      target: n.node_id,
+    }));
+
+  return { nodes: graphNodes, edges: graphEdges };
 }
 
 onMounted(() => {
   if (!containerRef.value) return;
 
-  const data = buildTreeData(props.treeData.nodes);
+  if (!Array.isArray(props.treeData.nodes)) {
+    graphError.value = '知识图数据异常，暂时无法渲染。';
+    return;
+  }
+
+  const data = buildGraphData(props.treeData.nodes);
+  console.log('[KnowledgeGraph] Built tree data:', data, 'from', props.treeData.nodes.length, 'nodes');
+
+  if (props.treeData.nodes.length === 0) {
+    graphError.value = '暂无知识节点可展示';
+    return;
+  }
 
   const resolveNodeFill = (d: any) => {
     const payload = (d?.data ?? {}) as { node_id?: string; parent_id?: string | null };
@@ -83,64 +125,65 @@ onMounted(() => {
     return masteryBandColor(score);
   };
 
-  graph = new Graph({
-    container: containerRef.value,
-    autoFit: 'view',
-    data,
-    layout: {
-      type: 'compactBox',
-      direction: 'LR',
-      preventOverlap: true,
-      nodeSep: 50,
-      rankSep: 100,
-    },
-    behaviors: ['drag-canvas', 'zoom-canvas', 'collapse-expand'],
-    node: {
-      style: {
-        fill: (d: any) => resolveNodeFill(d),
-        radius: 4,
-        padding: 6,
-        labelText: (d: any) => d.label,
-        labelFill: '#ffffff',
-        labelPlacement: 'center',
-        cursor: 'pointer',
+  try {
+    graph = new Graph({
+      container: containerRef.value,
+      autoFit: 'view',
+      data,
+      behaviors: ['drag-canvas', 'zoom-canvas'],
+      node: {
+        style: {
+          fill: (d: any) => resolveNodeFill(d),
+          radius: 4,
+          padding: 6,
+          labelText: (d: any) => d.label,
+          labelFill: '#ffffff',
+          labelPlacement: 'center',
+          cursor: 'pointer',
+        },
+        state: {
+          selected: {
+            fill: '#10B981',
+            stroke: '#047857',
+            lineWidth: 2,
+          }
+        }
       },
-      state: {
-        selected: {
-          fill: '#10B981',
-          stroke: '#047857',
-          lineWidth: 2,
+      edge: {
+        style: {
+          stroke: '#cbd5e1',
+          lineWidth: 1,
         }
       }
-    },
-    edge: {
-      style: {
-        stroke: '#cbd5e1',
-        lineWidth: 1,
-      }
-    }
-  });
-
-  graph.render();
-
-  graph.on('node:click', (e: any) => {
-    // Determine node ID from the event (Targeted fix for G6 v5)
-    const nodeId = e.target?.id || e.itemId || e.item?.id;
-    if (!nodeId || !graph) return;
-
-    const isSelected = !quizStore.selectedNodeIds.includes(nodeId);
-    
-    // Toggle clicked node
-    quizStore.toggleNodeSelection(nodeId, isSelected);
-    graph.setElementState(nodeId, 'selected', isSelected);
-
-    // Cascade to children
-    const childIds = getAllChildIds(nodeId, props.treeData.nodes);
-    childIds.forEach(cId => {
-      quizStore.toggleNodeSelection(cId, isSelected);
-      graph?.setElementState(cId, 'selected', isSelected);
     });
-  });
+
+    graph.render();
+    console.log('[KnowledgeGraph] Graph rendered successfully');
+
+    graph.on('node:click', (e: any) => {
+      // Determine node ID from the event (Targeted fix for G6 v5)
+      const nodeId = e.target?.id || e.itemId || e.item?.id;
+      if (!nodeId || !graph) return;
+
+      const isSelected = !quizStore.selectedNodeIds.includes(nodeId);
+
+      // Toggle clicked node
+      quizStore.toggleNodeSelection(nodeId, isSelected);
+      graph.setElementState(nodeId, 'selected', isSelected);
+
+      // Cascade to children
+      const childIds = getAllChildIds(nodeId, props.treeData.nodes);
+      childIds.forEach(cId => {
+        quizStore.toggleNodeSelection(cId, isSelected);
+        graph?.setElementState(cId, 'selected', isSelected);
+      });
+    });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    graphError.value = `知识图加载失败: ${message}`;
+    console.error('[KnowledgeGraph] Error:', err);
+    graph = null;
+  }
 });
 
 onBeforeUnmount(() => {
@@ -152,7 +195,13 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="knowledge-graph-container h-full w-full rounded-lg overflow-hidden border border-slate-200 shadow-sm bg-white">
-    <div ref="containerRef" class="w-full h-full min-h-[500px]"></div>
+    <div
+      v-if="graphError"
+      class="flex h-full min-h-[500px] items-center justify-center px-6 text-center text-sm text-rose-600"
+    >
+      {{ graphError }}
+    </div>
+    <div v-else ref="containerRef" class="w-full h-full min-h-[500px]"></div>
   </div>
 </template>
 
