@@ -1,10 +1,29 @@
 import tempfile
 
-from app.services.review_service import get_wrong_answers_by_node, record_answer
+from app.services.review_service import (
+    get_chapter_mastery,
+    get_wrong_answers_by_node,
+    record_answer,
+)
 from app.services.vector_store import get_connection, init_db
 
 
 class TestReviewService:
+    def test_get_chapter_mastery_returns_empty_summary_when_no_attempts(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            conn = get_connection(f"{tmpdir}/review.db")
+            init_db(conn)
+
+            result = get_chapter_mastery(user_id="user-empty", conn=conn)
+
+            assert result.by_parent == []
+            assert result.summary.total_parents == 0
+            assert result.summary.total_attempted == 0
+            assert result.summary.total_correct == 0
+            assert result.summary.overall_mastery_score == 0
+
+            conn.close()
+
     def test_record_answer_persists_rows(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             conn = get_connection(f"{tmpdir}/review.db")
@@ -200,5 +219,180 @@ class TestReviewService:
             assert result.summary.total_nodes_with_errors == 1
             assert result.by_node[0].node_id == "node-a"
             assert result.by_node[0].questions[0].question_text == "Q1"
+
+            conn.close()
+
+    def test_get_chapter_mastery_computes_ratio_by_parent_cluster(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            conn = get_connection(f"{tmpdir}/review.db")
+            init_db(conn)
+            conn.executemany(
+                """
+                INSERT INTO knowledge_nodes (node_id, document_id, label, parent_id, content_summary, depth, chunk_text)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    ("chapter-1", 1, "Chapter 1", None, "c1", 0, "c1"),
+                    ("chapter-2", 1, "Chapter 2", None, "c2", 0, "c2"),
+                    ("n-1", 1, "Node 1", "chapter-1", "n1", 1, "n1"),
+                    ("n-2", 1, "Node 2", "chapter-1", "n2", 1, "n2"),
+                    ("n-3", 1, "Node 3", "chapter-2", "n3", 1, "n3"),
+                ],
+            )
+            conn.commit()
+
+            # Chapter 1: 2 correct / 3 attempts => 0.6667
+            record_answer(
+                user_id="user-1",
+                node_id="n-1",
+                question_text="Q1",
+                user_answer="A",
+                correct_answer="A",
+                is_correct=True,
+                error_type="no_error",
+                conn=conn,
+            )
+            record_answer(
+                user_id="user-1",
+                node_id="n-2",
+                question_text="Q2",
+                user_answer="B",
+                correct_answer="C",
+                is_correct=False,
+                error_type="logic_gap",
+                conn=conn,
+            )
+            record_answer(
+                user_id="user-1",
+                node_id="n-2",
+                question_text="Q3",
+                user_answer="D",
+                correct_answer="D",
+                is_correct=True,
+                error_type="no_error",
+                conn=conn,
+            )
+
+            # Chapter 2: 0 correct / 1 attempts => 0
+            record_answer(
+                user_id="user-1",
+                node_id="n-3",
+                question_text="Q4",
+                user_answer="X",
+                correct_answer="Y",
+                is_correct=False,
+                error_type="conceptual",
+                conn=conn,
+            )
+
+            result = get_chapter_mastery(user_id="user-1", conn=conn)
+
+            by_chapter = {item.parent_id: item for item in result.by_parent}
+            assert set(by_chapter.keys()) == {"chapter-1", "chapter-2"}
+            assert by_chapter["chapter-1"].attempted_count == 3
+            assert by_chapter["chapter-1"].correct_count == 2
+            assert by_chapter["chapter-1"].mastery_score == 2 / 3
+            assert by_chapter["chapter-2"].attempted_count == 1
+            assert by_chapter["chapter-2"].correct_count == 0
+            assert by_chapter["chapter-2"].mastery_score == 0
+            assert result.summary.total_parents == 2
+            assert result.summary.total_attempted == 4
+            assert result.summary.total_correct == 2
+
+            conn.close()
+
+    def test_get_chapter_mastery_excludes_invalidated_records(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            conn = get_connection(f"{tmpdir}/review.db")
+            init_db(conn)
+            conn.executemany(
+                """
+                INSERT INTO knowledge_nodes (node_id, document_id, label, parent_id, content_summary, depth, chunk_text)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    ("chapter-1", 1, "Chapter 1", None, "c1", 0, "c1"),
+                    ("n-1", 1, "Node 1", "chapter-1", "n1", 1, "n1"),
+                ],
+            )
+            conn.commit()
+
+            valid_id = record_answer(
+                user_id="user-1",
+                node_id="n-1",
+                question_text="Q1",
+                user_answer="A",
+                correct_answer="A",
+                is_correct=True,
+                error_type="no_error",
+                conn=conn,
+            )
+            invalidated_id = record_answer(
+                user_id="user-1",
+                node_id="n-1",
+                question_text="Q2",
+                user_answer="B",
+                correct_answer="C",
+                is_correct=False,
+                error_type="logic_gap",
+                conn=conn,
+            )
+            conn.execute(
+                "UPDATE question_history SET is_invalidated = 1 WHERE question_record_id = ?",
+                (invalidated_id,),
+            )
+            conn.commit()
+
+            result = get_chapter_mastery(user_id="user-1", conn=conn)
+
+            assert result.summary.total_parents == 1
+            assert result.summary.total_attempted == 1
+            assert result.summary.total_correct == 1
+            assert result.by_parent[0].attempted_count == 1
+            assert result.by_parent[0].correct_count == 1
+            assert result.by_parent[0].mastery_score == 1
+            assert valid_id != invalidated_id
+
+            conn.close()
+
+    def test_get_chapter_mastery_all_correct_case(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            conn = get_connection(f"{tmpdir}/review.db")
+            init_db(conn)
+            conn.executemany(
+                """
+                INSERT INTO knowledge_nodes (node_id, document_id, label, parent_id, content_summary, depth, chunk_text)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    ("chapter-1", 1, "Chapter 1", None, "c1", 0, "c1"),
+                    ("n-1", 1, "Node 1", "chapter-1", "n1", 1, "n1"),
+                    ("n-2", 1, "Node 2", "chapter-1", "n2", 1, "n2"),
+                ],
+            )
+            conn.commit()
+
+            for idx in range(3):
+                record_answer(
+                    user_id="user-1",
+                    node_id="n-1" if idx % 2 == 0 else "n-2",
+                    question_text=f"Q{idx}",
+                    user_answer="A",
+                    correct_answer="A",
+                    is_correct=True,
+                    error_type="no_error",
+                    conn=conn,
+                )
+
+            result = get_chapter_mastery(user_id="user-1", conn=conn)
+
+            assert result.summary.total_parents == 1
+            assert result.summary.total_attempted == 3
+            assert result.summary.total_correct == 3
+            assert result.summary.overall_mastery_score == 1
+            assert result.by_parent[0].parent_id == "chapter-1"
+            assert result.by_parent[0].attempted_count == 3
+            assert result.by_parent[0].correct_count == 3
+            assert result.by_parent[0].mastery_score == 1
 
             conn.close()

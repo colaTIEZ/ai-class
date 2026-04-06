@@ -4,7 +4,15 @@ from unittest.mock import patch
 from fastapi.testclient import TestClient
 
 from app.main import app
-from app.schemas.review import WrongAnswerNodeGroup, WrongAnswerQuestion, WrongAnswersData, WrongAnswersSummary
+from app.schemas.review import (
+    ChapterMasteryData,
+    ChapterMasteryItem,
+    ChapterMasterySummary,
+    WrongAnswerNodeGroup,
+    WrongAnswerQuestion,
+    WrongAnswersData,
+    WrongAnswersSummary,
+)
 from app.services.vector_store import get_connection, init_db
 
 
@@ -73,3 +81,43 @@ class TestReviewApi:
 
         assert response.status_code == 200
         mock_service.assert_called_once_with(user_id='user-1', node_id_filter='node-a')
+
+    def test_chapter_mastery_requires_user_header(self):
+        client = TestClient(app)
+        response = client.get('/api/v1/review/chapter-mastery')
+
+        assert response.status_code == 400
+        data = response.json()
+        assert data['status'] == 'error'
+        assert data['message'] == 'Missing X-User-ID header'
+
+    def test_chapter_mastery_success_response(self):
+        client = TestClient(app)
+        payload = ChapterMasteryData(
+            by_parent=[
+                ChapterMasteryItem(
+                    parent_id='chapter-1',
+                    parent_label='Chapter 1',
+                    attempted_count=3,
+                    correct_count=2,
+                    mastery_score=2 / 3,
+                )
+            ],
+            summary=ChapterMasterySummary(
+                total_parents=1,
+                total_attempted=3,
+                total_correct=2,
+                overall_mastery_score=2 / 3,
+            ),
+        )
+
+        with patch('app.api.v1.review.get_chapter_mastery', return_value=payload) as mock_service:
+            response = client.get('/api/v1/review/chapter-mastery', headers={'X-User-ID': 'user-1'})
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data['status'] == 'success'
+        assert data['data']['by_parent'][0]['parent_id'] == 'chapter-1'
+        assert data['data']['by_parent'][0]['attempted_count'] == 3
+        assert data['data']['summary']['total_parents'] == 1
+        mock_service.assert_called_once_with(user_id='user-1')

@@ -11,6 +11,9 @@ from datetime import datetime
 from typing import Optional
 
 from app.schemas.review import (
+    ChapterMasteryData,
+    ChapterMasteryItem,
+    ChapterMasterySummary,
     WrongAnswerNodeGroup,
     WrongAnswerQuestion,
     WrongAnswersData,
@@ -293,6 +296,76 @@ def get_wrong_answers_by_node(
             summary=WrongAnswersSummary(
                 total_wrong_count=len(rows),
                 total_nodes_with_errors=len(by_node),
+            ),
+        )
+    finally:
+        if own_connection:
+            connection.close()
+
+
+def get_chapter_mastery(
+    *,
+    user_id: str,
+    conn: Optional[sqlite3.Connection] = None,
+) -> ChapterMasteryData:
+    """Return mastery metrics grouped by parent chapter (parent_id cluster)."""
+
+    own_connection = conn is None
+    connection = conn or get_connection()
+    try:
+        ensure_review_tables_ready(connection)
+        rows = connection.execute(
+            """
+            SELECT
+                COALESCE(kn.parent_id, qh.node_id) AS parent_id,
+                COALESCE(parent_kn.label, kn.label, COALESCE(kn.parent_id, qh.node_id)) AS parent_label,
+                COUNT(*) AS attempted_count,
+                SUM(CASE WHEN qh.is_correct = 1 THEN 1 ELSE 0 END) AS correct_count
+            FROM question_history qh
+            LEFT JOIN knowledge_nodes kn ON kn.node_id = qh.node_id
+            LEFT JOIN knowledge_nodes parent_kn ON parent_kn.node_id = kn.parent_id
+            WHERE qh.user_id = ?
+              AND qh.is_invalidated = 0
+            GROUP BY COALESCE(kn.parent_id, qh.node_id),
+                     COALESCE(parent_kn.label, kn.label, COALESCE(kn.parent_id, qh.node_id))
+            ORDER BY COALESCE(kn.parent_id, qh.node_id) ASC
+            """,
+            (user_id,),
+        ).fetchall()
+
+        by_parent: list[ChapterMasteryItem] = []
+        total_attempted = 0
+        total_correct = 0
+
+        for row in rows:
+            parent_id = str(row[0])
+            parent_label = str(row[1])
+            attempted_count = int(row[2])
+            correct_count = int(row[3])
+            mastery_score = (correct_count / attempted_count) if attempted_count else 0.0
+
+            total_attempted += attempted_count
+            total_correct += correct_count
+
+            by_parent.append(
+                ChapterMasteryItem(
+                    parent_id=parent_id,
+                    parent_label=parent_label,
+                    attempted_count=attempted_count,
+                    correct_count=correct_count,
+                    mastery_score=mastery_score,
+                )
+            )
+
+        overall_mastery_score = (total_correct / total_attempted) if total_attempted else 0.0
+
+        return ChapterMasteryData(
+            by_parent=by_parent,
+            summary=ChapterMasterySummary(
+                total_parents=len(by_parent),
+                total_attempted=total_attempted,
+                total_correct=total_correct,
+                overall_mastery_score=overall_mastery_score,
             ),
         )
     finally:

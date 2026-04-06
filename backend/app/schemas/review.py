@@ -59,3 +59,38 @@ class WrongAnswersResponse(BaseModel):
     data: Optional[WrongAnswersData] = Field(default=None)
     message: str = Field(default="")
     trace_id: str = Field(default="")
+
+
+class ChapterMasteryItem(BaseModel):
+    """Mastery stats grouped by one parent chapter."""
+
+    parent_id: str = Field(..., description="Parent chapter node ID")
+    parent_label: str = Field(..., description="Parent chapter label")
+    attempted_count: int = Field(..., ge=0)
+    correct_count: int = Field(..., ge=0)
+    mastery_score: float = Field(..., ge=0.0, le=1.0)
+
+
+class ChapterMasterySummary(BaseModel):
+    """Aggregate summary for chapter mastery."""
+
+    total_parents: int = Field(..., ge=0)
+    total_attempted: int = Field(..., ge=0)
+    total_correct: int = Field(..., ge=0)
+    overall_mastery_score: float = Field(..., ge=0.0, le=1.0)
+
+
+class ChapterMasteryData(BaseModel):
+    """Data payload for chapter mastery metrics."""
+
+    by_parent: list[ChapterMasteryItem] = Field(default_factory=list)
+    summary: ChapterMasterySummary
+
+
+class ChapterMasteryResponse(BaseModel):
+    """Standard response envelope for chapter mastery API."""
+
+    status: Literal["success", "error"] = Field(default="success")
+    data: Optional[ChapterMasteryData] = Field(default=None)
+    message: str = Field(default="")
+    trace_id: str = Field(default="")

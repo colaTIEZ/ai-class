@@ -8,8 +8,8 @@ import uuid
 from fastapi import APIRouter, Header, Query
 from fastapi.responses import JSONResponse
 
-from app.schemas.review import WrongAnswersResponse
-from app.services.review_service import get_wrong_answers_by_node
+from app.schemas.review import ChapterMasteryResponse, WrongAnswersResponse
+from app.services.review_service import get_chapter_mastery, get_wrong_answers_by_node
 
 logger = logging.getLogger(__name__)
 
@@ -56,4 +56,31 @@ async def get_wrong_answers(
         )
     except Exception as exc:  # pragma: no cover - defensive guard
         logger.exception("Failed to fetch wrong answers: %s", exc)
+        return _error_response(500, "Internal server error", trace_id)
+
+
+@router.get(
+    "/chapter-mastery",
+    response_model=ChapterMasteryResponse,
+    summary="Get chapter mastery grouped by parent_id cluster",
+)
+async def get_chapter_mastery_endpoint(
+    x_user_id: str | None = Header(default=None, alias="X-User-ID"),
+) -> ChapterMasteryResponse | JSONResponse:
+    """Return chapter-level mastery metrics for the current user."""
+
+    trace_id = str(uuid.uuid4())
+    if not x_user_id or not x_user_id.strip():
+        return _error_response(400, "Missing X-User-ID header", trace_id)
+
+    try:
+        data = get_chapter_mastery(user_id=x_user_id.strip())
+        return ChapterMasteryResponse(
+            status="success",
+            data=data,
+            message="",
+            trace_id=trace_id,
+        )
+    except Exception as exc:  # pragma: no cover - defensive guard
+        logger.exception("Failed to fetch chapter mastery: %s", exc)
         return _error_response(500, "Internal server error", trace_id)
