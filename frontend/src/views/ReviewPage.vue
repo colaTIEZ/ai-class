@@ -5,6 +5,7 @@ import { useQuizStore } from '../stores/quiz'
 import {
   getChapterMastery,
   getWrongAnswers,
+  invalidateQuestionRecord,
   type ChapterMasteryData,
   type ChapterMasteryItem,
   type WrongAnswerNodeGroup,
@@ -19,6 +20,8 @@ const errorMessage = ref('')
 const wrongAnswerGroups = ref<WrongAnswerNodeGroup[]>([])
 const chapterMastery = ref<ChapterMasteryItem[]>([])
 const chapterMasterySummary = ref<ChapterMasteryData['summary'] | null>(null)
+const invalidatingQuestionIds = ref(new Set<string>())
+const reportErrorMessage = ref('')
 const activeNodeId = ref<string | null>(null)
 const expandedNodeIds = ref(new Set<string>())
 
@@ -58,6 +61,60 @@ function retryNode(nodeId: string) {
   quizStore.clearSelection()
   quizStore.toggleNodeSelection(nodeId, true)
   router.push('/quiz')
+}
+
+async function reportAiError(questionRecordId: string) {
+  reportErrorMessage.value = ''
+  const nextPending = new Set(invalidatingQuestionIds.value)
+  nextPending.add(questionRecordId)
+  invalidatingQuestionIds.value = nextPending
+
+  try {
+    const response = await invalidateQuestionRecord({
+      question_record_id: questionRecordId,
+      reason: 'user_reported_ai_error',
+    })
+    if (response.status !== 'success') {
+      return
+    }
+
+    wrongAnswerGroups.value = wrongAnswerGroups.value
+      .map((group) => {
+        const remainingQuestions = group.questions.filter(
+          (question) => question.question_record_id !== questionRecordId
+        )
+        return {
+          ...group,
+          questions: remainingQuestions,
+          total_errors: remainingQuestions.length,
+        }
+      })
+      .filter((group) => group.total_errors > 0)
+
+    if (
+      activeNodeId.value &&
+      !wrongAnswerGroups.value.some((group) => group.node_id === activeNodeId.value)
+    ) {
+      activeNodeId.value = null
+    }
+
+    try {
+      const masteryResp = await getChapterMastery()
+      if (masteryResp.status === 'success' && masteryResp.data) {
+        chapterMastery.value = masteryResp.data.by_parent
+        chapterMasterySummary.value = masteryResp.data.summary
+      }
+    } catch {
+      // Keep review workflow non-blocking when mastery refresh fails.
+    }
+  } catch (error) {
+    reportErrorMessage.value =
+      error instanceof Error ? error.message : 'Failed to report AI error. Please try again.'
+  } finally {
+    const next = new Set(invalidatingQuestionIds.value)
+    next.delete(questionRecordId)
+    invalidatingQuestionIds.value = next
+  }
 }
 
 function formatDate(value: string): string {
@@ -161,6 +218,10 @@ onMounted(async () => {
             <p v-else class="mt-2 text-sm text-emerald-800">Mastery snapshot unavailable yet</p>
           </section>
 
+          <div v-if="reportErrorMessage" class="mb-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+            {{ reportErrorMessage }}
+          </div>
+
           <div v-if="isLoading" class="flex min-h-[18rem] items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-slate-50 text-slate-500">
             Loading wrong-answer notebook...
           </div>
@@ -238,6 +299,16 @@ onMounted(async () => {
                           <div class="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-600">Correct answer</div>
                           <div class="mt-1 text-sm leading-6 text-emerald-900">{{ question.correct_answer }}</div>
                         </div>
+                      </div>
+
+                      <div class="mt-3 flex justify-end">
+                        <button
+                          class="report-ai-error rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-800 transition hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60"
+                          :disabled="invalidatingQuestionIds.has(question.question_record_id)"
+                          @click.stop="reportAiError(question.question_record_id)"
+                        >
+                          {{ invalidatingQuestionIds.has(question.question_record_id) ? 'Reporting...' : 'Report AI Error/Hallucination' }}
+                        </button>
                       </div>
                     </div>
                   </div>

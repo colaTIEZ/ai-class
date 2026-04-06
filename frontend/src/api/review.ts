@@ -50,6 +50,19 @@ export interface ChapterMasteryData {
   }
 }
 
+export interface InvalidateQuestionRequest {
+  question_record_id: string
+  reason?: string
+}
+
+export interface InvalidateQuestionData {
+  question_record_id: string
+  found: boolean
+  updated: boolean
+  already_invalidated: boolean
+  invalidated_at: string | null
+}
+
 function getClientUserId(): string {
   if (typeof window === 'undefined') {
     return 'anonymous'
@@ -99,6 +112,27 @@ export async function getChapterMastery(): Promise<ApiEnvelope<ChapterMasteryDat
     headers: {
       'X-User-ID': getClientUserId(),
     },
+  })
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}))
+    const errorMessage = errorData?.message || `API error: ${response.status}`
+    throw new Error(errorMessage)
+  }
+
+  return response.json()
+}
+
+export async function invalidateQuestionRecord(
+  payload: InvalidateQuestionRequest
+): Promise<ApiEnvelope<InvalidateQuestionData>> {
+  const response = await fetch(`${API_BASE}/review/invalidate`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-User-ID': getClientUserId(),
+    },
+    body: JSON.stringify(payload),
   })
 
   if (!response.ok) {
