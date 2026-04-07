@@ -145,7 +145,7 @@ describe('ReviewPage', () => {
     const wrapper = mountReviewPage()
     await flushPromises()
 
-    expect(wrapper.text()).toContain('按知识点回看错题')
+    expect(wrapper.text()).toContain('👾 小怪兽图鉴')
     expect(wrapper.text()).toContain('Derivative basics')
     expect(wrapper.text()).toContain('Integral basics')
     expect(wrapper.text()).toContain('3')

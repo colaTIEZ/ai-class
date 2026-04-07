@@ -63,6 +63,29 @@ function retryNode(nodeId: string) {
   router.push('/quiz')
 }
 
+// Lightweight 3D Card Hover Effect for Trading Cards
+function handleMouseMove(e: MouseEvent) {
+  const el = e.currentTarget as HTMLElement
+  const rect = el.getBoundingClientRect()
+  const x = e.clientX - rect.left
+  const y = e.clientY - rect.top
+  
+  const midX = rect.width / 2
+  const midY = rect.height / 2
+  
+  const rotateX = ((y - midY) / midY) * -4
+  const rotateY = ((x - midX) / midX) * 4
+  
+  el.style.transform = `perspective(1200px) rotateX(${rotateX}deg) rotateY(${rotateY}deg) scale3d(1.02, 1.02, 1.02)`
+  el.style.boxShadow = '0 20px 40px -10px rgba(79,70,229,0.2)'
+}
+
+function handleMouseLeave(e: MouseEvent) {
+  const el = e.currentTarget as HTMLElement
+  el.style.transform = 'perspective(1200px) rotateX(0deg) rotateY(0deg) scale3d(1, 1, 1)'
+  el.style.boxShadow = ''
+}
+
 async function reportAiError(questionRecordId: string) {
   reportErrorMessage.value = ''
   const nextPending = new Set(invalidatingQuestionIds.value)
@@ -164,11 +187,11 @@ onMounted(async () => {
               Wrong-Answer Notebook
             </div>
             <div>
-              <h1 class="text-3xl font-black tracking-tight text-slate-900 sm:text-4xl">
-                按知识点回看错题
+              <h1 class="flex items-center gap-3 text-3xl font-black tracking-tight text-slate-900 sm:text-4xl">
+                <span>👾 小怪兽图鉴</span>
               </h1>
               <p class="mt-2 max-w-2xl text-sm leading-6 text-slate-600 sm:text-base">
-                所有错误按 node_id 分组，方便你快速定位系统性薄弱点，并从当前知识点重新开练。
+                这里收录了你未能击败的知识怪。通过重新挑战（重新作答）来打破封印，夺回丢失的经验值！
               </p>
             </div>
           </div>
@@ -235,11 +258,13 @@ onMounted(async () => {
             <p class="mt-2 text-sm text-slate-500">完成一些测验后，这里会按知识点自动归类展示。</p>
           </div>
 
-          <div v-else class="space-y-4">
+          <div v-else class="space-y-6 perspective-container">
             <article
               v-for="group in visibleGroups"
               :key="group.node_id"
-              class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition hover:shadow-md"
+              class="relative overflow-hidden rounded-3xl border-2 border-indigo-100/50 bg-white shadow-sm transition-all duration-200 transform-gpu"
+              @mousemove="handleMouseMove"
+              @mouseleave="handleMouseLeave"
             >
               <button
                 class="flex w-full items-center justify-between gap-4 px-5 py-4 text-left transition hover:bg-slate-50"
@@ -283,10 +308,11 @@ onMounted(async () => {
                         </div>
 
                         <button
-                          class="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-700"
+                          class="group relative overflow-hidden rounded-xl bg-orange-500 px-6 py-2.5 text-sm font-bold text-white shadow-[0_0_15px_rgba(249,115,22,0.3)] transition-all hover:bg-orange-400 hover:shadow-[0_0_25px_rgba(249,115,22,0.6)] active:scale-95"
                           @click.stop="retryNode(group.node_id)"
                         >
-                          重新作答
+                          <span class="relative z-10 flex items-center gap-2">⚔️ 打破封印重新挑战</span>
+                          <div class="absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/30 to-transparent transition-transform duration-500 group-hover:translate-x-full"></div>
                         </button>
                       </div>
 
@@ -333,5 +359,9 @@ onMounted(async () => {
   opacity: 0;
   transform: translateY(-4px);
   max-height: 0;
+}
+
+.perspective-container {
+  perspective: 1000px;
 }
 </style>

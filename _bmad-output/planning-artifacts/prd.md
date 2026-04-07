@@ -41,6 +41,9 @@ User attempts to upload a 200MB encrypted handbook. The system gracefully interc
 ### Journey 3: The Architecture Explorer (Demo)
 A technical interviewer observes the "Trace Log," seeing the explicit hand-off between the "Question Gen Agent" and the "Socratic Tutor Agent," demonstrating intentional system design.
 
+### Journey 4: Gamified Reward Loop (The "Dopamine" Hit)
+When interacting with existing features (document parsing, quiz errors, stat reviews), the interface uses lively, bouncy micro-interactions (e.g. 3D card tilts, safe-to-fail peachy error colors instead of red Xs, and Lottie confetti combos) to actively encourage continuous learning without changing the underlying business logic. See `ui-ux-gamification-spec.md` for specific implementation rules for these beautifications.
+
 ## 🛣️ 4. Strategic Roadmap & Scoping
 
 ### Phase 1: MVP (Core Scaffolding)
@@ -64,7 +67,7 @@ A technical interviewer observes the "Trace Log," seeing the explicit hand-off b
 ## 🏗️ 6. Technical & Web Architecture
 
 - **SPA Stack:** Vue 3 + Vite (ES2020+) to offload rendering compute to the client browser (CSR).
-- **Styling:** TailwindCSS + On-demand Element Plus components for **Mobile-First Responsive Design** and minimal bundle size.
+- **Styling:** TailwindCSS + On-demand Element Plus components. Specifically heavily layered with **Gamification UI/UX Beauty** (Neumorphism, Glassmorphism, CSS3/SVG animations, and GSAP micro-interactions) applied to existing functional components to maximize student engagement.
 - **Real-time Comms:** Server-Sent Events (SSE) via native `fetch` API for streaming tutor responses.
 - **RAG Latency:** < 3s starting latency for initial hint delivery.
 

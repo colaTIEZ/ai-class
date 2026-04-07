@@ -61,10 +61,10 @@ describe('QuizView escape hatch', () => {
   it('renders escape hatch controls when the guardrail is active', () => {
     const wrapper = mountQuizView()
 
-    expect(wrapper.text()).toContain('Guardrail Trigger: stuck')
-    expect(wrapper.text()).toContain('Marked as Needs Review for follow-up.')
-    expect(wrapper.text()).toContain('Show Answer')
-    expect(wrapper.text()).toContain('Skip Question')
+    expect(wrapper.text()).toContain('⚠️ 安全边界触发: stuck')
+    expect(wrapper.text()).toContain('📌 已被收入错题图鉴。')
+    expect(wrapper.text()).toContain('查看正确答案')
+    expect(wrapper.text()).toContain('跳过此题')
   })
 
   it('dispatches the show_answer and skip actions', async () => {

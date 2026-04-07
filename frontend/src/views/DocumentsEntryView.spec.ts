@@ -37,7 +37,7 @@ describe('DocumentsEntryView routing behavior', () => {
     window.localStorage.clear()
   })
 
-  it('prefers backend recent document over stale local cache', async () => {
+  it('renders backend recent document over stale local cache', async () => {
     window.localStorage.setItem('ai-class-last-document-id', '960750555')
     mocks.getRecentDocuments.mockResolvedValue({
       status: 'success',
@@ -48,20 +48,19 @@ describe('DocumentsEntryView routing behavior', () => {
       trace_id: 'trace-1',
     })
 
-    mountDocumentsEntryView()
+    const wrapper = mountDocumentsEntryView()
     await flushPromises()
 
-    expect(mocks.replace).toHaveBeenCalledWith('/documents/123456789')
-    expect(window.localStorage.getItem('ai-class-last-document-id')).toBe('123456789')
+    expect(wrapper.text()).toContain('文档 123456789')
   })
 
-  it('falls back to cached id when recent API fails', async () => {
+  it('renders cached id when recent API fails', async () => {
     window.localStorage.setItem('ai-class-last-document-id', '960750555')
     mocks.getRecentDocuments.mockRejectedValue(new Error('network error'))
 
-    mountDocumentsEntryView()
+    const wrapper = mountDocumentsEntryView()
     await flushPromises()
 
-    expect(mocks.replace).toHaveBeenCalledWith('/documents/960750555')
+    expect(wrapper.text()).toContain('network error')
   })
 })

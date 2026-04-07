@@ -213,6 +213,66 @@ async def get_document_tree(document_id: int):
         raise AppException("Internal error while fetching knowledge tree.", status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
+@router.delete("/{document_id}", status_code=status.HTTP_200_OK)
+async def delete_document(document_id: int):
+    """删除指定文档及其关联节点/向量。"""
+
+    def remove_document(doc_id: int) -> bool:
+        conn = get_connection()
+        try:
+            row = conn.execute(
+                "SELECT id, source_job_id FROM documents WHERE id = ?",
+                (doc_id,),
+            ).fetchone()
+            if not row:
+                return False
+
+            node_rows = conn.execute(
+                "SELECT node_id FROM knowledge_nodes WHERE document_id = ?",
+                (doc_id,),
+            ).fetchall()
+            node_ids = [r[0] for r in node_rows]
+
+            if node_ids:
+                placeholders = ", ".join("?" * len(node_ids))
+                conn.execute(
+                    f"DELETE FROM vec_embeddings WHERE node_id IN ({placeholders})",
+                    node_ids,
+                )
+
+            conn.execute("DELETE FROM knowledge_nodes WHERE document_id = ?", (doc_id,))
+
+            source_job_id = row["source_job_id"]
+            if source_job_id:
+                conn.execute("DELETE FROM document_tasks WHERE job_id = ?", (source_job_id,))
+
+            conn.execute("DELETE FROM documents WHERE id = ?", (doc_id,))
+            conn.commit()
+            return True
+        finally:
+            conn.close()
+
+    try:
+        deleted = await asyncio.to_thread(remove_document, document_id)
+        if not deleted:
+            raise AppException(
+                message="Document not found.",
+                status_code=status.HTTP_404_NOT_FOUND,
+            )
+
+        return {
+            "status": "success",
+            "data": {"document_id": document_id},
+            "message": "Document deleted",
+            "trace_id": "",
+        }
+    except AppException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to delete document {document_id}: {e}")
+        raise AppException("Internal error while deleting document.", status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
 @router.get("/recent")
 async def get_recent_documents(limit: int = 10):
     """返回最近已完成抽取的文档 ID 列表。"""

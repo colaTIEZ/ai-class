@@ -35,6 +35,15 @@ export interface RecentDocumentsResponse {
   trace_id: string;
 }
 
+export interface DeleteDocumentResponse {
+  status: 'success' | 'error';
+  data: {
+    document_id: number;
+  };
+  message: string;
+  trace_id: string;
+}
+
 function normalizeErrorMessage(response: Response, fallback: string): string {
   return `${fallback}: ${response.status} ${response.statusText}`;
 }
@@ -75,6 +84,16 @@ export async function getRecentDocuments(limit = 10): Promise<RecentDocumentsRes
   const response = await fetch(`/api/v1/documents/recent?limit=${limit}`);
   if (!response.ok) {
     throw new Error(`API error: ${response.status} ${response.statusText}`);
+  }
+  return response.json();
+}
+
+export async function deleteDocument(documentId: number): Promise<DeleteDocumentResponse> {
+  const response = await fetch(`/api/v1/documents/${documentId}`, {
+    method: 'DELETE',
+  });
+  if (!response.ok) {
+    throw new Error(`Delete failed: ${response.status} ${response.statusText}`);
   }
   return response.json();
 }
