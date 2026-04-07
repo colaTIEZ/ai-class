@@ -145,7 +145,7 @@ describe('ReviewPage', () => {
     const wrapper = mountReviewPage()
     await flushPromises()
 
-    expect(wrapper.text()).toContain('👾 小怪兽图鉴')
+    expect(wrapper.text()).toContain('错题回顾')
     expect(wrapper.text()).toContain('Derivative basics')
     expect(wrapper.text()).toContain('Integral basics')
     expect(wrapper.text()).toContain('3')
@@ -216,7 +216,7 @@ describe('ReviewPage', () => {
     await wrapper.findAll('button').at(1)?.trigger('click')
     await flushPromises()
 
-    await wrapper.find('button.rounded-xl').trigger('click')
+    await wrapper.find('.retry-btn').trigger('click')
 
     expect(mocks.clearSelection).toHaveBeenCalled()
     expect(mocks.toggleNodeSelection).toHaveBeenCalledWith('node-a', true)

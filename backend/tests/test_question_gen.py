@@ -105,7 +105,27 @@ class TestParseLlmResponse:
         
         with pytest.raises(ValueError, match="Missing required field"):
             parse_llm_response(response)
-    
+            
+    def test_insufficient_context_error(self):
+        """处理 LLM 返回的显式错误"""
+        response = json.dumps({
+            "error": "INSUFFICIENT_CONTEXT"
+        })
+        with pytest.raises(ValueError, match="LLM reported insufficient context"):
+            parse_llm_response(response)
+            
+    def test_robust_field_names(self):
+        """处理不标准但含义正确的字段名 (如 question, answer, uppercase)"""
+        response = json.dumps({
+            "QUESTION": "Is this robust?",
+            "OPTIONS": ["Yes", "No"],
+            "ANSWER": "Yes"
+        })
+        result = parse_llm_response(response)
+        assert result["question_text"] == "Is this robust?"
+        assert result["options"] == ["Yes", "No"]
+        assert result["correct_answer"] == "Yes"
+
     def test_invalid_json(self):
         """无效 JSON 抛出异常"""
         with pytest.raises(ValueError, match="Failed to parse"):

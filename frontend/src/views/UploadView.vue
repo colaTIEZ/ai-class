@@ -109,104 +109,118 @@ async function reuseExistingDocument() {
 </script>
 
 <template>
-  <div class="mx-auto max-w-3xl px-6 py-10">
-    <div class="rounded-3xl border border-slate-200/80 bg-white/85 p-8 shadow-[0_24px_80px_rgba(15,23,42,0.08)] backdrop-blur">
+  <div class="w-full px-8 py-10">
+    <div class="w-full max-w-3xl">
+      <!-- 标题区 -->
       <div class="flex items-center gap-3">
-        <span class="inline-flex items-center justify-center rounded-xl bg-orange-100 p-2 text-orange-600 shadow-sm">
-          <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+        <span class="inline-flex items-center justify-center rounded-xl p-2.5 shadow-sm"
+              style="background: var(--accent-primary-light); color: var(--accent-primary);">
+          <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
           </svg>
         </span>
-        <h1 class="text-3xl font-black text-slate-800">点亮知识领地</h1>
+        <h1 class="text-3xl font-bold tracking-tight" style="color: var(--text-heading);">上传学习文档</h1>
       </div>
-      <p class="mt-3 text-sm leading-6 text-slate-600">
-        上传魔法卷轴 (PDF)，AI 将施展“知识凝练术”为您开辟专属的天赋树。
+      <p class="mt-3 text-sm leading-6" style="color: var(--text-muted-on-glass);">
+        上传文档 (PDF)，AI 将为您解析内容结构，生成专属的学习图谱和测验。
       </p>
 
-      <div class="mt-8 rounded-2xl border-2 border-dashed border-indigo-200 bg-indigo-50/50 p-6 transition-all hover:border-indigo-400 hover:bg-indigo-50">
+      <!-- 上传卡片 — 独立毛玻璃面板 -->
+      <div class="glass-panel mt-8 p-6 transition-all hover:shadow-lg" style="border: 1px solid var(--glass-border-strong);">
         <input
           type="file"
           accept="application/pdf,.pdf"
           @change="onFileChange"
-          class="block w-full text-sm text-slate-500 file:mr-4 file:rounded-full file:border-0 file:bg-indigo-100 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-indigo-700 hover:file:bg-indigo-200"
+          class="block w-full text-sm cursor-pointer file:mr-4 file:rounded-lg file:border-0 file:px-5 file:py-2.5 file:text-sm file:font-semibold file:cursor-pointer file:transition-all file:duration-200"
+          style="color: var(--text-muted-on-glass); --tw-file-bg: rgba(255,255,255,0.6); --tw-file-text: var(--text-on-glass);"
         />
-        <p v-if="selectedFile" class="mt-4 inline-block rounded-lg bg-white px-3 py-1 text-sm font-medium text-indigo-800 shadow-sm">
-          卷轴已就绪: {{ selectedFile.name }} ({{ Math.ceil(selectedFile.size / 1024) }} KB)
+        <p v-if="selectedFile" class="mt-4 inline-flex items-center gap-2 rounded-lg px-3.5 py-2 text-sm font-medium glass-card">
+          <svg class="w-4 h-4 flex-shrink-0" style="color: var(--accent-primary);" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          <span style="color: var(--text-on-glass);">文档已就绪: {{ selectedFile.name }} ({{ Math.ceil(selectedFile.size / 1024) }} KB)</span>
         </p>
       </div>
 
-      <div class="mt-8 flex items-center justify-center gap-4">
+      <!-- 操作按钮区 -->
+      <div class="mt-8 flex items-center justify-start gap-4">
         <button
           :disabled="!canUpload"
           @click="() => startUpload()"
-          class="group relative overflow-hidden rounded-2xl bg-indigo-600 px-8 py-3 text-base font-bold text-white shadow-lg shadow-indigo-600/30 transition-all hover:bg-indigo-500 hover:shadow-indigo-600/50 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:shadow-none"
+          class="btn-primary px-6 py-2.5 text-sm"
         >
-          <span class="relative z-10 flex items-center gap-2">
-            <span v-if="!isUploading">⚡ 施放提取术</span>
-            <span v-else>✨ 咒语吟唱中...</span>
+          <span class="flex items-center gap-2">
+            <svg v-if="!isUploading" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+            </svg>
+            <span v-if="!isUploading">开始分析</span>
+            <span v-else>处理中...</span>
           </span>
-          <div class="absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/20 to-transparent transition-transform duration-1000 group-hover:translate-x-full"></div>
         </button>
 
         <router-link
           to="/documents"
-          class="rounded-xl px-4 py-3 text-sm font-semibold text-slate-500 transition-colors hover:text-slate-800"
+          class="glass-btn px-5 py-2.5 text-sm"
         >
-          去图鉴看看
+          返回知识库
         </router-link>
       </div>
 
-      <div v-if="duplicateDocumentId" class="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-4">
-        <p class="text-sm text-amber-800">
+      <!-- 重复文件提示 -->
+      <div v-if="duplicateDocumentId" class="glass-card-warning mt-4 p-4">
+        <p class="text-sm" style="color: rgba(146, 64, 14, 0.9);">
           检测到重复文件，可直接复用已有文档（ID: {{ duplicateDocumentId }})，或强制重新上传。
         </p>
         <div class="mt-3 flex gap-3">
           <button
             @click="reuseExistingDocument"
-            class="rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700"
+            class="btn-primary rounded-lg px-4 py-2 text-sm"
+            style="background: var(--color-success); box-shadow: 0 4px 14px rgba(5, 150, 105, 0.25);"
           >
             复用已有文档
           </button>
           <button
             :disabled="isUploading"
             @click="startUpload(true)"
-            class="rounded-md border border-amber-400 px-4 py-2 text-sm font-medium text-amber-800 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60"
+            class="glass-btn px-4 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-60"
           >
             强制重新上传
           </button>
         </div>
       </div>
 
-      <p v-if="uploadError" class="mt-4 text-sm font-medium text-red-600">{{ uploadError }}</p>
+      <p v-if="uploadError" class="mt-4 text-sm font-medium" style="color: var(--color-danger);">{{ uploadError }}</p>
 
-      <!-- AI Extraction Animation (Magic Aura) -->
+      <!-- 解析中动画 -->
       <div v-if="isPolling" class="mt-10 flex flex-col items-center justify-center pb-6">
-        <div class="relative flex h-24 w-24 items-center justify-center">
-          <div class="absolute h-full w-full animate-ping rounded-full bg-indigo-400 opacity-20"></div>
-          <div class="absolute h-16 w-16 animate-[spin_3s_linear_infinite] rounded-full border-4 border-dashed border-indigo-300 opacity-60"></div>
-          <div class="absolute h-8 w-8 rounded-full bg-indigo-600 shadow-[0_0_20px_#4f46e5]"></div>
-          <div class="absolute -top-2 h-3 w-3 animate-bounce rounded-full bg-orange-400 shadow-[0_0_10px_#fb923c]"></div>
-        </div>
-        <p class="mt-6 text-sm font-bold text-indigo-700">正在提炼核心考点... 魔法纯度极高 ✨</p>
+        <div class="glass-spinner mb-4"></div>
+        <p class="text-sm font-medium" style="color: var(--text-muted-on-glass);">正在提取核心考点... 请稍候</p>
       </div>
 
-      <div v-else-if="uploadResult && uploadResult.status !== 'queued'" class="mt-8 rounded-2xl border border-slate-200 bg-slate-50 p-5">
-        <h2 class="text-sm font-bold uppercase tracking-widest text-slate-500">上传状态</h2>
-        <div class="mt-3 space-y-2 text-sm text-slate-700">
-          <p v-if="uploadResult.status === 'done'" class="text-emerald-600 font-medium">
-            ✅ 提取成功！光芒正在汇聚，马上开启你的领地...
+      <!-- 处理结果 -->
+      <div v-else-if="uploadResult && uploadResult.status !== 'queued'" class="glass-panel mt-8 p-4">
+        <div class="space-y-2 text-sm">
+          <p v-if="uploadResult.status === 'done'" class="font-medium flex items-center gap-2" style="color: var(--color-success);">
+            <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            分析成功！即将为您跳转至知识库...
           </p>
-          <p v-if="uploadResult.status === 'error'" class="text-red-500 font-medium">
-            ❌ 提炼失败，可能卷轴封印太强，请重试。
+          <p v-if="uploadResult.status === 'error'" class="font-medium flex items-center gap-2" style="color: var(--color-danger);">
+            <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            提取失败，请检查文件后重试。
           </p>
         </div>
       </div>
 
-      <p v-if="pollingError" class="mt-4 text-sm font-medium text-red-600">{{ pollingError }}</p>
+      <p v-if="pollingError" class="mt-4 text-sm font-medium" style="color: var(--color-danger);">{{ pollingError }}</p>
 
-      <div v-if="rawJobId" class="mt-6 rounded-lg border border-dashed border-slate-300 p-3 text-xs text-slate-500">
+      <!-- 手动跳转提示 -->
+      <div v-if="rawJobId" class="glass-card mt-6 p-3 text-xs" style="color: var(--text-muted-on-glass); border-style: dashed;">
         如果自动跳转失败，可手动访问文档路径：
-        <span class="font-mono text-slate-700">/documents/{{ Number.parseInt(rawJobId.replace(/-/g, '').slice(0, 8), 16) }}</span>
+        <span class="font-mono" style="color: var(--text-on-glass);">/documents/{{ Number.parseInt(rawJobId.replace(/-/g, '').slice(0, 8), 16) }}</span>
       </div>
     </div>
   </div>

@@ -104,60 +104,76 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="mx-auto w-full max-w-5xl px-6 py-8">
-    <div class="mb-5 flex items-center justify-between">
-      <h1 class="text-3xl font-black text-slate-800 tracking-tight">选择要挑战的领地</h1>
-      <router-link to="/upload" class="rounded-xl bg-orange-100 border border-orange-200 px-5 py-2.5 text-sm font-bold tracking-widest text-orange-700 hover:bg-orange-200 transition-all">
-        ✨ 开启新领地
+  <div class="w-full px-8 py-10">
+    <!-- 标题栏 -->
+    <div class="mb-6 flex items-center justify-between">
+      <h1 class="text-3xl font-bold tracking-tight" style="color: var(--text-heading);">选择文档</h1>
+      <router-link to="/upload" class="glass-btn px-5 py-2.5 text-sm flex items-center gap-2">
+        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
+        </svg>
+        上传新文档
       </router-link>
     </div>
 
-    <div v-if="isResolving" class="rounded-2xl border-2 border-slate-100 bg-white/50 p-10 text-center text-sm font-medium tracking-widest text-slate-400">
-      正在探测领地坐标...
+    <!-- 加载态 -->
+    <div v-if="isResolving" class="glass-panel p-10 text-center">
+      <div class="flex items-center justify-center gap-3">
+        <div class="glass-spinner"></div>
+        <span class="text-sm font-medium" style="color: var(--text-muted-on-glass);">正在加载文档列表...</span>
+      </div>
     </div>
 
-    <div v-else-if="errorMsg" class="rounded-2xl border border-rose-200 bg-rose-50 p-6 text-rose-700">
-      <p>{{ errorMsg }}</p>
-      <router-link to="/upload" class="mt-3 inline-block font-bold text-indigo-600 hover:underline">去获取</router-link>
+    <!-- 错误态 -->
+    <div v-else-if="errorMsg" class="glass-card-danger p-6">
+      <p style="color: rgba(185, 28, 28, 0.9);">{{ errorMsg }}</p>
+      <router-link to="/upload" class="mt-3 inline-block font-medium text-sm hover:underline" style="color: var(--accent-primary);">去上传</router-link>
     </div>
 
-    <div v-else-if="documents.length === 0" class="rounded-2xl border border-slate-200 bg-white p-10 text-center text-slate-500">
-      <p class="font-medium text-lg text-slate-600">当前没有已解析的魔法卷轴。</p>
-      <router-link to="/upload" class="mt-4 inline-block rounded-lg bg-indigo-50 px-5 py-2 font-bold text-indigo-600 transition-colors hover:bg-indigo-100">📜 解读魔法卷轴</router-link>
+    <!-- 空态 -->
+    <div v-else-if="documents.length === 0" class="glass-panel empty-state px-6">
+      <svg class="w-12 h-12 mb-4" style="color: var(--text-muted-on-glass); opacity: 0.5;" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.2">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+      </svg>
+      <p class="font-semibold text-lg" style="color: var(--text-on-glass);">当前没有已处理的文档材料。</p>
+      <router-link to="/upload" class="mt-4 btn-primary inline-block px-5 py-2 text-sm">
+        上传文档
+      </router-link>
     </div>
 
+    <!-- 文档卡片网格 -->
     <div v-else class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
       <div
         v-for="doc in documents"
         :key="doc.id"
-        class="group w-full rounded-2xl border-2 border-slate-100 bg-white p-5 shadow-sm transition-all duration-300 hover:border-indigo-300 hover:shadow-lg hover:-translate-y-1 relative overflow-hidden"
+        class="glass-card p-5 cursor-pointer group relative overflow-hidden"
       >
-        <div class="absolute inset-0 bg-gradient-to-br from-indigo-50/50 to-transparent opacity-0 transition-opacity group-hover:opacity-100"></div>
         <div class="relative z-10 flex flex-col h-full justify-between gap-4">
           <div>
-            <p class="font-bold text-lg text-slate-800 line-clamp-2 leading-tight">{{ doc.title }}</p>
+            <p class="font-semibold text-lg line-clamp-2 leading-tight" style="color: var(--text-heading);">{{ doc.title }}</p>
             <div class="mt-3 flex items-center gap-2">
-               <span class="inline-flex rounded bg-slate-100 px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest text-slate-500">ID: {{ doc.id }}</span>
-               <span class="inline-flex rounded bg-emerald-50 border border-emerald-100 px-2.5 py-1 text-[10px] font-bold text-emerald-600">{{ doc.nodeCount }} 个节点</span>
+               <span class="glass-badge text-xs" style="opacity: 0.6;">ID: {{ doc.id }}</span>
+               <span class="glass-badge text-xs" style="background: var(--accent-primary-light); color: var(--accent-primary); border-color: var(--accent-primary-border);">{{ doc.nodeCount }} 个节点</span>
             </div>
           </div>
-          <div class="mt-4 flex items-center justify-between border-t border-slate-100 pt-3">
+          <div class="mt-4 flex items-center justify-between pt-3" style="border-top: 1px solid var(--glass-border);">
             <button
               type="button"
-              class="w-full rounded-xl bg-slate-50 px-4 py-2.5 text-sm font-bold text-slate-700 transition-colors hover:bg-indigo-50 hover:text-indigo-700"
+              class="glass-btn w-full px-4 py-2 text-sm"
               @click="openDocument(doc.id)"
             >
-              传送至领地
+              查看详情
             </button>
             <button
               type="button"
-              class="ml-2 rounded-xl p-2.5 text-slate-400 transition-colors hover:bg-rose-50 hover:text-rose-600 disabled:cursor-not-allowed disabled:opacity-60"
-              title="销毁卷轴"
+              class="ml-2 rounded-lg p-2 transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-60"
+              style="color: var(--text-muted-on-glass);"
+              title="删除文档"
               :disabled="isDeleting(doc.id)"
               @click="removeDocument(doc.id)"
             >
-              <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-                 <path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd" />
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 transition-colors hover:text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
               </svg>
             </button>
           </div>

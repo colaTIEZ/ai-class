@@ -51,7 +51,7 @@ onMounted(async () => {
     const treePayload = await getDocumentTree(documentId.value);
     treeData.value = normalizeTreePayload(treePayload);
   } catch (err: any) {
-    errorMsg.value = err.message || 'Failed to load document structure';
+    errorMsg.value = err.message || '文档结构加载失败';
   }
 
   try {
@@ -64,7 +64,7 @@ onMounted(async () => {
       masteryByParent.value = {};
     }
   } catch {
-    // Keep graph rendering even if mastery fetch fails.
+    // 掌握度加载失败不阻塞图谱渲染
     masteryByParent.value = {};
   } finally {
     isLoading.value = false;
@@ -79,67 +79,66 @@ const startQuiz = () => {
 </script>
 
 <template>
-  <div class="document-view w-full h-screen flex flex-col pt-16 px-8 bg-slate-50">
-    <div class="header flex justify-between items-center mb-6">
-      <h1 class="text-3xl font-black text-slate-800 tracking-tight">🎯 圈定讨伐范围</h1>
+  <div class="document-view w-full h-screen flex flex-col px-8 py-10 overflow-hidden">
+    <!-- 头部区域 -->
+    <div class="header flex justify-between items-center mb-6 w-full">
+      <h1 class="text-3xl font-bold tracking-tight" style="color: var(--text-heading);">选择测验范围</h1>
       <div class="flex items-center gap-3">
         <router-link
           to="/upload"
-          class="px-4 py-2 rounded-xl border-2 border-slate-200 text-slate-600 text-sm font-bold hover:bg-slate-100 hover:border-slate-300 transition-colors"
+          class="glass-btn px-4 py-2.5 flex items-center gap-2 text-sm"
         >
-          📜 解锁新卷轴
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+          </svg>
+          上传新文档
         </router-link>
         <div class="relative flex flex-col items-center justify-center">
-          <transition name="bounce">
-            <div v-if="quizStore.hasSelection" class="absolute -top-14 z-20 block w-max rounded-xl bg-orange-100 border border-orange-200 px-4 py-2 text-sm font-bold text-orange-700 shadow-lg pointer-events-none">
-              <span class="mr-1">🎮</span>发现知识小怪，预计掉落经验值！
-              <div class="absolute -bottom-2 left-1/2 -ml-2 h-4 w-4 rotate-45 bg-orange-100 border-b border-r border-orange-200"></div>
-            </div>
-          </transition>
-          <button 
-            @click="startQuiz" 
+          <button
+            @click="startQuiz"
             :disabled="!quizStore.hasSelection"
-            class="start-btn relative z-10 px-8 py-3 rounded-xl font-bold text-white shadow-sm transition-all duration-300"
-            :class="quizStore.hasSelection ? 'bg-gradient-to-r from-orange-500 to-rose-500 hover:scale-105 hover:shadow-xl hover:shadow-orange-500/40 active:scale-95' : 'bg-slate-300 cursor-not-allowed'"
+            class="relative z-10 px-6 py-2.5 rounded-xl font-medium text-sm transition-all duration-200"
+            :class="quizStore.hasSelection ? 'btn-primary' : ''"
+            :style="!quizStore.hasSelection ? 'background: rgba(148, 163, 184, 0.3); color: var(--text-muted-on-glass); cursor: not-allowed; box-shadow: none;' : ''"
           >
-            <span class="tracking-widest">⚔️ 立刻讨伐</span>
+            <span>开始测验</span>
           </button>
         </div>
       </div>
     </div>
 
-    <div class="content flex-grow mb-8 rounded-2xl shadow-[0_10px_40px_rgba(0,0,0,0.04)] overflow-hidden bg-white/60 backdrop-blur-md border border-slate-200/60 p-2">
+    <!-- 内容区 -->
+    <div class="content flex-1 w-full relative">
+      <!-- 加载态 -->
       <div v-if="isLoading" class="flex w-full h-full items-center justify-center">
         <div class="flex flex-col items-center gap-4">
-          <div class="h-10 w-10 animate-spin rounded-full border-4 border-indigo-200 border-t-indigo-600"></div>
-          <span class="text-sm font-bold tracking-widest text-indigo-400">正在具现化领地版图...</span>
+          <div class="glass-spinner" style="width: 2.5rem; height: 2.5rem;"></div>
+          <span class="text-sm font-medium" style="color: var(--text-muted-on-glass);">正在渲染知识图谱...</span>
         </div>
       </div>
+      <!-- 错误态 -->
       <div v-else-if="errorMsg" class="flex w-full h-full items-center justify-center">
-        <span class="text-red-500 font-medium">{{ errorMsg }}</span>
-      </div>
-      <div v-else-if="treeData && treeData.total_nodes === 0" class="flex w-full h-full items-center justify-center">
-        <div class="text-center text-slate-500">
-          <p class="font-medium">当前文档没有可展示的知识节点。</p>
-          <p class="mt-1 text-sm">请先上传并处理 PDF，或切换到最近上传的文档。</p>
-          <router-link to="/upload" class="mt-3 inline-block text-indigo-600 hover:underline">去上传页面</router-link>
+        <div class="glass-card-danger px-6 py-4 rounded-xl">
+          <span class="font-medium" style="color: rgba(185, 28, 28, 0.9);">{{ errorMsg }}</span>
         </div>
       </div>
+      <!-- 空节点态 -->
+      <div v-else-if="treeData && treeData.total_nodes === 0" class="flex w-full h-full items-center justify-center">
+        <div class="glass-panel text-center px-8 py-10">
+          <svg class="w-12 h-12 mx-auto mb-4" style="color: var(--text-muted-on-glass); opacity: 0.4;" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+          </svg>
+          <p class="font-medium" style="color: var(--text-on-glass);">当前文档没有可展示的知识节点。</p>
+          <p class="mt-1 text-sm" style="color: var(--text-muted-on-glass);">请先上传并处理 PDF，或切换到最近上传的文档。</p>
+          <router-link to="/upload" class="mt-4 btn-primary inline-block px-5 py-2 text-sm">去上传</router-link>
+        </div>
+      </div>
+      <!-- 知识图谱 -->
       <KnowledgeGraph v-else-if="treeData" :treeData="treeData" :masteryByParent="masteryByParent" />
     </div>
   </div>
 </template>
 
 <style scoped>
-.bounce-enter-active {
-  animation: bounce-in 0.6s cubic-bezier(0.68, -0.55, 0.26, 1.55) forwards;
-}
-.bounce-leave-active {
-  animation: bounce-in 0.3s cubic-bezier(0.68, -0.55, 0.26, 1.55) reverse forwards;
-}
-@keyframes bounce-in {
-  0% { transform: scale(0.5) translateY(20px); opacity: 0; }
-  50% { transform: scale(1.05) translateY(-5px); opacity: 1; }
-  100% { transform: scale(1) translateY(0); opacity: 1; }
-}
+/* 极简样式 — 继承全局 Glassmorphism 设计系统 */
 </style>

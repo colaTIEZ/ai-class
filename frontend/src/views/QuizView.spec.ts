@@ -62,7 +62,7 @@ describe('QuizView escape hatch', () => {
     const wrapper = mountQuizView()
 
     expect(wrapper.text()).toContain('⚠️ 安全边界触发: stuck')
-    expect(wrapper.text()).toContain('📌 已被收入错题图鉴。')
+    expect(wrapper.text()).toContain('📌 已被收入错题记录本。')
     expect(wrapper.text()).toContain('查看正确答案')
     expect(wrapper.text()).toContain('跳过此题')
   })

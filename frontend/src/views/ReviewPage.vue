@@ -63,28 +63,7 @@ function retryNode(nodeId: string) {
   router.push('/quiz')
 }
 
-// Lightweight 3D Card Hover Effect for Trading Cards
-function handleMouseMove(e: MouseEvent) {
-  const el = e.currentTarget as HTMLElement
-  const rect = el.getBoundingClientRect()
-  const x = e.clientX - rect.left
-  const y = e.clientY - rect.top
-  
-  const midX = rect.width / 2
-  const midY = rect.height / 2
-  
-  const rotateX = ((y - midY) / midY) * -4
-  const rotateY = ((x - midX) / midX) * 4
-  
-  el.style.transform = `perspective(1200px) rotateX(${rotateX}deg) rotateY(${rotateY}deg) scale3d(1.02, 1.02, 1.02)`
-  el.style.boxShadow = '0 20px 40px -10px rgba(79,70,229,0.2)'
-}
 
-function handleMouseLeave(e: MouseEvent) {
-  const el = e.currentTarget as HTMLElement
-  el.style.transform = 'perspective(1200px) rotateX(0deg) rotateY(0deg) scale3d(1, 1, 1)'
-  el.style.boxShadow = ''
-}
 
 async function reportAiError(questionRecordId: string) {
   reportErrorMessage.value = ''
@@ -128,11 +107,11 @@ async function reportAiError(questionRecordId: string) {
         chapterMasterySummary.value = masteryResp.data.summary
       }
     } catch {
-      // Keep review workflow non-blocking when mastery refresh fails.
+      // 掌握度刷新失败不阻塞主流程
     }
   } catch (error) {
     reportErrorMessage.value =
-      error instanceof Error ? error.message : 'Failed to report AI error. Please try again.'
+      error instanceof Error ? error.message : '由于网络原因报告 AI 错误失败，请重试。'
   } finally {
     const next = new Set(invalidatingQuestionIds.value)
     next.delete(questionRecordId)
@@ -156,10 +135,10 @@ onMounted(async () => {
     if (wrongAnswerResp.status === 'success' && wrongAnswerResp.data) {
       wrongAnswerGroups.value = wrongAnswerResp.data.by_node
     } else {
-      errorMessage.value = wrongAnswerResp.message || 'Failed to load review notebook'
+      errorMessage.value = wrongAnswerResp.message || '由于网络原因加载错题回顾失败'
     }
   } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : 'Failed to load review notebook'
+    errorMessage.value = error instanceof Error ? error.message : '由于网络原因加载错题回顾失败'
   }
 
   try {
@@ -178,162 +157,194 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="review-page min-h-[calc(100vh-4rem)] bg-[radial-gradient(circle_at_top,_#f8fafc,_#eef2ff_45%,_#e2e8f0_100%)] px-4 py-8 sm:px-6 lg:px-10">
-    <div class="mx-auto max-w-6xl space-y-8">
-      <section class="overflow-hidden rounded-3xl border border-slate-200/80 bg-white/85 shadow-[0_24px_80px_rgba(15,23,42,0.08)] backdrop-blur">
-        <div class="flex flex-col gap-6 border-b border-slate-100 px-6 py-6 sm:px-8 lg:flex-row lg:items-end lg:justify-between">
+  <div class="review-page min-h-[calc(100vh-4rem)] px-8 py-10">
+    <div class="w-full space-y-8">
+      <section class="w-full">
+        <!-- 头部信息 + 数据卡片 -->
+        <div class="flex flex-col gap-6 pb-6 lg:flex-row lg:items-end lg:justify-between" style="border-bottom: 1px solid var(--glass-border);">
           <div class="space-y-3">
-            <div class="inline-flex items-center rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-amber-700">
-              Wrong-Answer Notebook
+            <div class="glass-badge">
+              <svg class="w-3.5 h-3.5 mr-1.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+              </svg>
+              错题记录本
             </div>
             <div>
-              <h1 class="flex items-center gap-3 text-3xl font-black tracking-tight text-slate-900 sm:text-4xl">
-                <span>👾 小怪兽图鉴</span>
+              <h1 class="text-3xl font-bold tracking-tight sm:text-4xl" style="color: var(--text-heading);">
+                错题回顾
               </h1>
-              <p class="mt-2 max-w-2xl text-sm leading-6 text-slate-600 sm:text-base">
-                这里收录了你未能击败的知识怪。通过重新挑战（重新作答）来打破封印，夺回丢失的经验值！
+              <p class="mt-2 max-w-2xl text-sm leading-6 sm:text-base" style="color: var(--text-muted-on-glass);">
+                这里收录了您在测验中答错的题目。通过重新复习和作答来巩固您的知识体系。
               </p>
             </div>
           </div>
 
-          <div class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:min-w-[360px]">
-            <div class="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-              <div class="text-xs font-medium uppercase tracking-[0.18em] text-slate-500">Wrong</div>
-              <div class="mt-1 text-2xl font-black text-slate-900">{{ summary.total_wrong_count }}</div>
+          <!-- 数据统计卡片 — 毛玻璃面板 -->
+          <div class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:min-w-[380px]">
+            <div class="glass-panel px-4 py-3.5">
+              <div class="data-label">错题总数</div>
+              <div class="data-number mt-1">{{ summary.total_wrong_count }}</div>
             </div>
-            <div class="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-              <div class="text-xs font-medium uppercase tracking-[0.18em] text-slate-500">Nodes</div>
-              <div class="mt-1 text-2xl font-black text-slate-900">{{ summary.total_nodes_with_errors }}</div>
+            <div class="glass-panel px-4 py-3.5">
+              <div class="data-label">涉及知识点</div>
+              <div class="data-number mt-1">{{ summary.total_nodes_with_errors }}</div>
             </div>
             <button
-              class="rounded-2xl border border-indigo-200 bg-indigo-600 px-4 py-3 text-left text-white transition hover:bg-indigo-500"
+              class="glass-panel px-4 py-3.5 text-left cursor-pointer transition-all hover:shadow-lg"
+              style="background: var(--accent-primary); border-color: rgba(99, 102, 241, 0.3);"
               @click="activeNodeId = null"
             >
-              <div class="text-xs font-medium uppercase tracking-[0.18em] text-indigo-100">View</div>
-              <div class="mt-1 text-sm font-semibold">Show all nodes</div>
+              <div class="data-label" style="color: rgba(255,255,255,0.7);">查看</div>
+              <div class="mt-1 text-sm font-semibold text-white">显示全部</div>
             </button>
           </div>
         </div>
 
-        <div class="px-6 py-6 sm:px-8">
-          <section class="mb-6 rounded-2xl border border-emerald-200/60 bg-emerald-50/70 p-4">
+        <div class="pt-6">
+          <!-- 掌握进度快照 — 绿色半透明玻璃 -->
+          <section class="glass-card-success mb-6 p-5">
             <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <h2 class="text-sm font-bold uppercase tracking-[0.18em] text-emerald-700">Mastery Snapshot</h2>
-                <p class="mt-1 text-sm text-emerald-900">Overall chapter mastery: {{ overallMasteryPercent }}%</p>
+                <h2 class="data-label" style="color: var(--color-success);">掌握进度快照</h2>
+                <p class="mt-2 flex items-baseline gap-2">
+                  <span class="data-number" style="color: var(--color-success); opacity: 0.7;">{{ overallMasteryPercent }}%</span>
+                  <span class="text-sm" style="color: var(--text-muted-on-glass);">整体掌握程度</span>
+                </p>
               </div>
-              <div class="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-700">
-                {{ chapterMastery.length }} chapters
+              <div class="glass-badge" style="background: var(--color-success-glass); color: var(--color-success); border-color: var(--color-success-border);">
+                共 {{ chapterMastery.length }} 个章节
               </div>
             </div>
 
-            <div v-if="chapterMastery.length" class="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            <div v-if="chapterMastery.length" class="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
               <div
                 v-for="chapter in chapterMastery"
                 :key="chapter.parent_id"
-                class="rounded-xl border border-emerald-200 bg-white px-3 py-2"
+                class="glass-card px-3.5 py-2.5"
+                style="background: rgba(255,255,255,0.6);"
               >
-                <div class="truncate text-sm font-semibold text-slate-900">{{ chapter.parent_label }}</div>
-                <div class="mt-1 text-xs text-slate-600">{{ masteryPercent(chapter.mastery_score) }}% • {{ chapter.correct_count }}/{{ chapter.attempted_count }}</div>
+                <div class="truncate text-sm font-semibold" style="color: var(--text-heading);">{{ chapter.parent_label }}</div>
+                <div class="mt-1 text-xs" style="color: var(--text-muted-on-glass);">{{ masteryPercent(chapter.mastery_score) }}% · {{ chapter.correct_count }}/{{ chapter.attempted_count }}</div>
               </div>
             </div>
 
-            <p v-else class="mt-2 text-sm text-emerald-800">Mastery snapshot unavailable yet</p>
+            <p v-else class="mt-3 text-sm" style="color: var(--color-success); opacity: 0.8;">暂无掌握进度快照</p>
           </section>
 
-          <div v-if="reportErrorMessage" class="mb-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          <!-- 报告错误提示 -->
+          <div v-if="reportErrorMessage" class="glass-card-warning mb-4 px-4 py-3 text-sm" style="color: rgba(146, 64, 14, 0.9);">
             {{ reportErrorMessage }}
           </div>
 
-          <div v-if="isLoading" class="flex min-h-[18rem] items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-slate-50 text-slate-500">
-            Loading wrong-answer notebook...
+          <!-- 加载态 -->
+          <div v-if="isLoading" class="glass-panel empty-state">
+            <div class="glass-spinner mb-3"></div>
+            <span class="text-sm font-medium" style="color: var(--text-muted-on-glass);">正在加载错题记录本...</span>
           </div>
 
-          <div v-else-if="errorMessage" class="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-red-700">
-            {{ errorMessage }}
+          <!-- 错误态 -->
+          <div v-else-if="errorMessage" class="glass-card-danger px-4 py-3">
+            <span style="color: rgba(185, 28, 28, 0.9);">{{ errorMessage }}</span>
           </div>
 
-          <div v-else-if="visibleGroups.length === 0" class="flex min-h-[18rem] flex-col items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-6 text-center text-slate-500">
-            <p class="text-lg font-semibold text-slate-700">还没有错题记录</p>
-            <p class="mt-2 text-sm text-slate-500">完成一些测验后，这里会按知识点自动归类展示。</p>
+          <!-- 空态 -->
+          <div v-else-if="visibleGroups.length === 0" class="glass-panel empty-state px-6">
+            <svg class="w-12 h-12 mb-4" style="color: var(--text-muted-on-glass); opacity: 0.4;" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+            </svg>
+            <p class="text-lg font-semibold" style="color: var(--text-on-glass);">还没有错题记录</p>
+            <p class="mt-2 text-sm" style="color: var(--text-muted-on-glass);">完成一些测验后，这里会按知识点自动归类展示。</p>
           </div>
 
-          <div v-else class="space-y-6 perspective-container">
+          <!-- 错题分组列表 -->
+          <div v-else class="space-y-5">
             <article
               v-for="group in visibleGroups"
               :key="group.node_id"
-              class="relative overflow-hidden rounded-3xl border-2 border-indigo-100/50 bg-white shadow-sm transition-all duration-200 transform-gpu"
-              @mousemove="handleMouseMove"
-              @mouseleave="handleMouseLeave"
+              class="glass-card relative overflow-hidden"
             >
               <button
-                class="flex w-full items-center justify-between gap-4 px-5 py-4 text-left transition hover:bg-slate-50"
+                class="flex w-full items-center justify-between gap-4 px-5 py-4 text-left cursor-pointer transition-all"
+                style="border-radius: inherit;"
                 @click="focusNode(group.node_id)"
               >
                 <div class="min-w-0">
                   <div class="flex items-center gap-3">
-                    <span class="inline-flex h-8 w-8 items-center justify-center rounded-full bg-amber-100 text-sm font-bold text-amber-700">
+                    <span class="inline-flex h-8 w-8 items-center justify-center rounded-full text-sm font-bold"
+                          style="background: var(--color-warning-glass); color: var(--color-warning); border: 1px solid rgba(217, 119, 6, 0.2);">
                       {{ group.questions.length }}
                     </span>
-                    <h2 class="truncate text-lg font-bold text-slate-900">{{ group.node_label }}</h2>
+                    <h2 class="truncate text-lg font-bold" style="color: var(--text-heading);">{{ group.node_label }}</h2>
                   </div>
-                  <p class="mt-1 text-sm text-slate-500">node_id: {{ group.node_id }}</p>
+                  <p class="mt-1 text-xs" style="color: var(--text-muted-on-glass); opacity: 0.6;">node_id: {{ group.node_id }}</p>
                 </div>
 
                 <div class="flex items-center gap-3">
-                  <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-slate-600">
-                    {{ expandedNodeIds.has(group.node_id) ? 'Expanded' : 'Collapsed' }}
+                  <span class="glass-badge text-xs">
+                    {{ expandedNodeIds.has(group.node_id) ? '收起' : '展开' }}
                   </span>
-                  <span class="text-slate-400">{{ activeNodeId === group.node_id ? 'Filtered' : 'Filter' }}</span>
+                  <span class="text-xs" style="color: var(--text-muted-on-glass);">{{ activeNodeId === group.node_id ? '取消筛选' : '筛选' }}</span>
                 </div>
               </button>
 
               <transition name="collapse">
-                <div v-if="expandedNodeIds.has(group.node_id)" class="border-t border-slate-100 px-5 py-5">
+                <div v-if="expandedNodeIds.has(group.node_id)" class="px-5 py-5" style="border-top: 1px solid var(--glass-border);">
                   <div class="grid gap-4">
                     <div
                       v-for="question in group.questions"
                       :key="question.question_record_id"
-                      class="rounded-2xl border border-slate-200 bg-slate-50 p-4"
+                      class="glass-panel p-4"
+                      style="background: var(--glass-bg-card);"
                     >
                       <div class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                         <div class="space-y-3">
-                          <p class="text-sm font-semibold uppercase tracking-[0.16em] text-slate-500">Question</p>
-                          <p class="text-base leading-7 text-slate-900">{{ question.question_text }}</p>
+                          <p class="data-label">测验原题</p>
+                          <p class="text-base leading-7" style="color: var(--text-heading);">{{ question.question_text }}</p>
                           <div class="flex flex-wrap gap-2 text-xs font-medium">
-                            <span class="rounded-full bg-red-100 px-2.5 py-1 text-red-700">{{ question.error_type }}</span>
-                            <span class="rounded-full bg-slate-200 px-2.5 py-1 text-slate-700">Severity {{ question.error_severity }}</span>
-                            <span class="rounded-full bg-indigo-100 px-2.5 py-1 text-indigo-700">{{ formatDate(question.attempted_at) }}</span>
+                            <span class="glass-badge" style="background: var(--color-danger-glass); color: var(--color-danger); border-color: rgba(220, 38, 38, 0.15);">{{ question.error_type }}</span>
+                            <span class="glass-badge">错误等级 {{ question.error_severity }}</span>
+                            <span class="glass-badge" style="background: var(--accent-primary-light); color: var(--accent-primary); border-color: var(--accent-primary-border);">{{ formatDate(question.attempted_at) }}</span>
                           </div>
                         </div>
 
                         <button
-                          class="group relative overflow-hidden rounded-xl bg-orange-500 px-6 py-2.5 text-sm font-bold text-white shadow-[0_0_15px_rgba(249,115,22,0.3)] transition-all hover:bg-orange-400 hover:shadow-[0_0_25px_rgba(249,115,22,0.6)] active:scale-95"
+                          class="btn-primary px-5 py-2.5 text-sm flex-shrink-0"
                           @click.stop="retryNode(group.node_id)"
                         >
-                          <span class="relative z-10 flex items-center gap-2">⚔️ 打破封印重新挑战</span>
-                          <div class="absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/30 to-transparent transition-transform duration-500 group-hover:translate-x-full"></div>
+                          <span class="flex items-center gap-2">
+                            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                              <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                            </svg>
+                            重新测验
+                          </span>
                         </button>
                       </div>
 
+                      <!-- 答案对比 -->
                       <div class="mt-4 grid gap-3 sm:grid-cols-2">
-                        <div class="rounded-xl border border-red-200 bg-red-50 px-4 py-3">
-                          <div class="text-xs font-semibold uppercase tracking-[0.16em] text-red-600">Your answer</div>
-                          <div class="mt-1 text-sm leading-6 text-red-900 line-through">{{ question.user_answer }}</div>
+                        <div class="glass-card-danger rounded-xl px-4 py-3">
+                          <div class="data-label" style="color: var(--color-danger);">您的答案</div>
+                          <div class="mt-1.5 text-sm leading-6 line-through" style="color: rgba(185, 28, 28, 0.85);">{{ question.user_answer }}</div>
                         </div>
-                        <div class="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3">
-                          <div class="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-600">Correct answer</div>
-                          <div class="mt-1 text-sm leading-6 text-emerald-900">{{ question.correct_answer }}</div>
+                        <div class="glass-card-success rounded-xl px-4 py-3">
+                          <div class="data-label" style="color: var(--color-success);">正确答案</div>
+                          <div class="mt-1.5 text-sm leading-6" style="color: rgba(4, 120, 87, 0.9);">{{ question.correct_answer }}</div>
                         </div>
                       </div>
 
+                      <!-- AI错误反馈 -->
                       <div class="mt-3 flex justify-end">
                         <button
-                          class="report-ai-error rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-800 transition hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60"
+                          class="glass-btn px-3 py-1.5 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-60"
                           :disabled="invalidatingQuestionIds.has(question.question_record_id)"
                           @click.stop="reportAiError(question.question_record_id)"
                         >
-                          {{ invalidatingQuestionIds.has(question.question_record_id) ? 'Reporting...' : 'Report AI Error/Hallucination' }}
+                          <span class="flex items-center gap-1.5">
+                            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                              <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.34 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                            </svg>
+                            {{ invalidatingQuestionIds.has(question.question_record_id) ? '正在报告...' : '反馈 AI 错误/幻觉' }}
+                          </span>
                         </button>
                       </div>
                     </div>
@@ -359,9 +370,5 @@ onMounted(async () => {
   opacity: 0;
   transform: translateY(-4px);
   max-height: 0;
-}
-
-.perspective-container {
-  perspective: 1000px;
 }
 </style>

@@ -74,30 +74,74 @@ def parse_llm_response(response_text: str) -> QuestionSchema:
         解析后的 QuestionSchema
         
     Raises:
-        ValueError: JSON 解析失败或格式不正确
+        ValueError: JSON 解析失败、格式不对、或上下文不足
     """
     # 清理可能的 markdown 代码块
     cleaned = response_text.strip()
     if cleaned.startswith("```"):
         lines = cleaned.split("\n")
-        # 移除第一行（```json）和最后一行（```）
-        cleaned = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
+        # 寻找第一个 { 和最后一个 }
+        first_brace = -1
+        last_brace = -1
+        for i, line in enumerate(lines):
+            if "{" in line and first_brace == -1:
+                first_brace = i
+            if "}" in line:
+                last_brace = i
+        
+        if first_brace != -1 and last_brace != -1:
+            cleaned = "\n".join(lines[first_brace:last_brace+1])
+        else:
+            # 备选方案：移除第一行和最后一行
+            cleaned = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
     
+    # 再次清理，防止残留 markdown
+    cleaned = cleaned.strip()
+    if cleaned.startswith("```"):
+        cleaned = cleaned.replace("```json", "").replace("```", "").strip()
+
     try:
         data = json.loads(cleaned)
     except json.JSONDecodeError as e:
-        raise ValueError(f"Failed to parse LLM response as JSON: {e}")
+        # 记录原始文本以便调试，但限制长度
+        preview = response_text[:100] + "..." if len(response_text) > 100 else response_text
+        raise ValueError(f"Failed to parse LLM response as JSON: {e}. Raw content: {preview}")
     
-    # 验证必需字段
-    required_fields = ["question_text", "correct_answer"]
-    for field in required_fields:
-        if field not in data:
-            raise ValueError(f"Missing required field: {field}")
+    # 检查 LLM 返回的显式错误（如 INSUFFICIENT_CONTEXT）
+    if "error" in data:
+        error_type = data["error"]
+        if error_type == "INSUFFICIENT_CONTEXT":
+            raise ValueError("LLM reported insufficient context to generate a question.")
+        raise ValueError(f"LLM reported an error: {error_type}")
+
+    # 兼容性处理：有些 LLM 可能返回大写或稍微不同的字段名
+    # 我们映射到标准字段
+    field_map = {
+        "question_text": ["question_text", "question", "text"],
+        "correct_answer": ["correct_answer", "answer", "correct"],
+        "options": ["options", "choices"]
+    }
     
+    normalized_data = {}
+    for standard_field, aliases in field_map.items():
+        found = False
+        for alias in aliases:
+            # 检查原词、大写、标题化
+            for variation in [alias, alias.upper(), alias.capitalize()]:
+                if variation in data:
+                    normalized_data[standard_field] = data[variation]
+                    found = True
+                    break
+            if found: break
+        
+        if not found and standard_field != "options":
+            required_zh = "问题文本" if standard_field == "question_text" else "正确答案"
+            raise ValueError(f"Missing required field: {standard_field} ({required_zh})")
+
     return QuestionSchema(
-        question_text=data["question_text"],
-        options=data.get("options"),
-        correct_answer=data["correct_answer"]
+        question_text=normalized_data["question_text"],
+        options=normalized_data.get("options"),
+        correct_answer=normalized_data["correct_answer"]
     )
 
 
