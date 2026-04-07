@@ -86,8 +86,9 @@ function buildGraphData(nodes: KnowledgeNode[]) {
     return {
       id: n.node_id,
       label: n.label,
-      x: 180 + depth * 260,
-      y: 120 + idx * 92,
+      // Keep deterministic seed positions as fallback for malformed data.
+      x: 80 + depth * 360,
+      y: 60 + idx * 120,
       data: n as unknown as Record<string, unknown>,
     };
   });
@@ -95,11 +96,99 @@ function buildGraphData(nodes: KnowledgeNode[]) {
   const graphEdges = nodes
     .filter((n) => n.parent_id && idSet.has(n.parent_id))
     .map((n) => ({
+      id: `edge:${n.parent_id as string}->${n.node_id}`,
       source: n.parent_id as string,
       target: n.node_id,
     }));
 
   return { nodes: graphNodes, edges: graphEdges };
+}
+
+function resolveClickedNodeId(event: any, nodeIds: string[]): string | null {
+  const known = new Set(nodeIds);
+  const rawCandidates = [
+    event?.itemId,
+    event?.data?.id,
+    event?.item?.id,
+    event?.target?.id,
+    event?.target?.config?.id,
+    event?.target?.attributes?.id,
+  ];
+
+  for (const candidate of rawCandidates) {
+    if (typeof candidate !== 'string' || !candidate) {
+      continue;
+    }
+    if (known.has(candidate)) {
+      return candidate;
+    }
+    const matched = nodeIds.find((id) => candidate.includes(id));
+    if (matched) {
+      return matched;
+    }
+  }
+
+  return null;
+}
+
+function getPartialNodeIds(allNodeIds: string[]): Set<string> {
+  const selected = new Set(quizStore.selectedNodeIds);
+  const partial = new Set<string>();
+
+  allNodeIds.forEach((id) => {
+    if (selected.has(id)) {
+      return;
+    }
+    const descendants = getAllChildIds(id, props.treeData.nodes);
+    if (descendants.length === 0) {
+      return;
+    }
+    const selectedCount = descendants.filter((d) => selected.has(d)).length;
+    if (selectedCount > 0) {
+      partial.add(id);
+    }
+  });
+
+  return partial;
+}
+
+function syncSelectionState(allNodeIds: string[]) {
+  if (!graph) {
+    return;
+  }
+  const selected = new Set(quizStore.selectedNodeIds);
+  const partial = getPartialNodeIds(allNodeIds);
+  const stateMap: Record<string, string[]> = {};
+
+  allNodeIds.forEach((id) => {
+    const currentStates = new Set((graph?.getElementState(id) || []) as string[]);
+    currentStates.delete('selected');
+    currentStates.delete('partial');
+
+    if (selected.has(id)) {
+      currentStates.add('selected');
+    } else if (partial.has(id)) {
+      currentStates.add('partial');
+    }
+
+    stateMap[id] = Array.from(currentStates);
+  });
+
+  graph.setElementState(stateMap);
+}
+
+function setNodeState(nodeId: string, stateName: string, enabled: boolean) {
+  if (!graph) {
+    return;
+  }
+
+  const currentStates = new Set((graph.getElementState(nodeId) || []) as string[]);
+  if (enabled) {
+    currentStates.add(stateName);
+  } else {
+    currentStates.delete(stateName);
+  }
+  graph.setElementState(nodeId, Array.from(currentStates));
 }
 
 onMounted(() => {
@@ -111,6 +200,7 @@ onMounted(() => {
   }
 
   const data = buildGraphData(props.treeData.nodes);
+  const allNodeIds = props.treeData.nodes.map((n) => n.node_id);
   console.log('[KnowledgeGraph] Built tree data:', data, 'from', props.treeData.nodes.length, 'nodes');
 
   if (props.treeData.nodes.length === 0) {
@@ -130,53 +220,110 @@ onMounted(() => {
       container: containerRef.value,
       autoFit: 'view',
       data,
+      layout: {
+        type: 'antv-dagre',
+        rankdir: 'LR',
+        nodesep: 56,
+        ranksep: 180,
+      },
       behaviors: ['drag-canvas', 'zoom-canvas'],
       node: {
+        type: 'rect',
         style: {
           fill: (d: any) => resolveNodeFill(d),
-          radius: 4,
-          padding: 6,
+          size: [260, 62],
+          radius: 14,
+          padding: 12,
           labelText: (d: any) => d.label,
           labelFill: '#ffffff',
           labelPlacement: 'center',
+          labelFontWeight: 'bold',
+          labelFontSize: 12,
+          labelWordWrap: true,
+          labelMaxWidth: 220,
+          labelTextOverflow: 'ellipsis',
           cursor: 'pointer',
+          shadowColor: (d: any) => resolveNodeFill(d),
+          shadowBlur: 10,
+          lineWidth: 1,
+          stroke: '#c7d2fe',
         },
         state: {
+          hover: {
+            stroke: '#6366f1',
+            lineWidth: 2,
+            shadowColor: '#6366f1',
+            shadowBlur: 16,
+          },
+          partial: {
+            stroke: '#f59e0b',
+            lineWidth: 2,
+            shadowColor: '#f59e0b',
+            shadowBlur: 14,
+          },
           selected: {
             fill: '#10B981',
             stroke: '#047857',
             lineWidth: 2,
+            shadowColor: '#10B981',
+            shadowBlur: 18,
           }
         }
       },
       edge: {
+        type: 'cubic-horizontal',
         style: {
-          stroke: '#cbd5e1',
-          lineWidth: 1,
+          stroke: '#94a3b8',
+          lineWidth: 1.3,
+          lineDash: [6, 4],
+          endArrow: true,
+          opacity: 0.75,
+        },
+        state: {
+          selected: {
+            stroke: '#10B981',
+            lineWidth: 2,
+            shadowColor: '#10B981',
+            shadowBlur: 8,
+          }
         }
       }
     });
 
     graph.render();
+    syncSelectionState(allNodeIds);
     console.log('[KnowledgeGraph] Graph rendered successfully');
 
+    graph.on('node:mouseenter', (e: any) => {
+      const nodeId = resolveClickedNodeId(e, allNodeIds);
+      if (!nodeId || !graph) return;
+      setNodeState(nodeId, 'hover', true);
+    });
+
+    graph.on('node:mouseleave', (e: any) => {
+      const nodeId = resolveClickedNodeId(e, allNodeIds);
+      if (!nodeId || !graph) return;
+      setNodeState(nodeId, 'hover', false);
+    });
+
     graph.on('node:click', (e: any) => {
-      // Determine node ID from the event (Targeted fix for G6 v5)
-      const nodeId = e.target?.id || e.itemId || e.item?.id;
+      const nodeId = resolveClickedNodeId(e, allNodeIds);
       if (!nodeId || !graph) return;
 
-      const isSelected = !quizStore.selectedNodeIds.includes(nodeId);
+      const selected = new Set(quizStore.selectedNodeIds);
+      const isSelected = !selected.has(nodeId);
 
       // Toggle clicked node
       quizStore.toggleNodeSelection(nodeId, isSelected);
-      graph.setElementState(nodeId, 'selected', isSelected);
 
       // Cascade to children
       const childIds = getAllChildIds(nodeId, props.treeData.nodes);
       childIds.forEach(cId => {
         quizStore.toggleNodeSelection(cId, isSelected);
-        graph?.setElementState(cId, 'selected', isSelected);
       });
+
+      // Always re-sync the full state to avoid stale visual selection.
+      syncSelectionState(allNodeIds);
     });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);

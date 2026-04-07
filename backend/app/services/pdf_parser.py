@@ -196,14 +196,67 @@ def process_pdf_generator(file_path: str, chunk_size=1000, overlap=100) -> Gener
         doc.close()
 
 
+def _normalize_title_line(text: str) -> str:
+    return re.sub(r"\s+", " ", text or "").strip()
+
+
+def _is_sentence_like(text: str) -> bool:
+    cleaned = _normalize_title_line(text)
+    if not cleaned:
+        return True
+    return cleaned.endswith(("。", "，", ",", ".", "!", "?", "？", ";", "；"))
+
+
+def _detect_chapter_title(line: str) -> tuple[str, str] | None:
+    cleaned = _normalize_title_line(line)
+    if not cleaned:
+        return None
+
+    match = re.match(r"^(第[一二三四五六七八九十百]+章|Chapter\s*\d+|Chapter\s*[IVXLC]+|\d+(?:\.0+)?)(?:\s*[:：\-—]\s*|\s+)(.+)$", cleaned, re.IGNORECASE)
+    if match:
+        title = _normalize_title_line(match.group(2))
+        if title:
+            return match.group(1).strip(), title[:80]
+
+    # Strong fallback only for short, non-sentence, title-like lines.
+    if 8 <= len(cleaned) <= 60 and not _is_sentence_like(cleaned):
+        if re.match(r"^\d+\.\d+", cleaned):
+            return None
+        word_count = len(cleaned.split())
+        if word_count <= 8 or re.search(r"[\u4e00-\u9fff]", cleaned):
+            return "Chapter", cleaned[:80]
+
+    return None
+
+
+def _detect_section_title(line: str) -> tuple[str, str] | None:
+    cleaned = _normalize_title_line(line)
+    if not cleaned:
+        return None
+
+    match = re.match(r"^(第[一二三四五六七八九十百]+节|Section\s*\d+(?:\.\d+)*|\d+\.\d+(?:\.\d+)*)(?:\s*[:：\-—]\s*|\s+)(.+)$", cleaned, re.IGNORECASE)
+    if match:
+        title = _normalize_title_line(match.group(2))
+        if title:
+            return match.group(1).strip(), title[:80]
+
+    return None
+
+
+def _make_summary(text: str, limit: int = 120) -> str:
+    cleaned = _normalize_title_line(text)
+    if len(cleaned) <= limit:
+        return cleaned
+    return cleaned[:limit].rstrip() + "..."
+
+
 def extract_hierarchy(document_id: int, chunks: List[str]) -> List[KnowledgeNodeInDB]:
     """
-    Parses hierarchical structure heuristically with regex and fallback heuristics.
-    Creates a 3-level hierarchy: Root -> Auto-Chapter -> Chunks
-    Falls back to auto-grouping by content length heuristics if no explicit titles found.
+    Parses hierarchical structure into a stable 3-level hierarchy: Root -> Chapter -> Section -> Paragraph.
+    Prefers explicit headings and only uses conservative fallback logic for missing titles.
     """
-    nodes = []
-    
+    nodes: List[KnowledgeNodeInDB] = []
+
     # Root doc node (Depth 0)
     root_id = f"doc_{document_id}_root"
     nodes.append(KnowledgeNodeInDB(
@@ -216,110 +269,120 @@ def extract_hierarchy(document_id: int, chunks: List[str]) -> List[KnowledgeNode
     ))
 
     current_chapter_id = root_id
-    current_section_id = root_id
-    
-    # Simple regex to identify Chapters/Sections
-    chapter_pattern = re.compile(r"^(第[一二三四五六七八九十百]+章|Chapter\s*\d+|[1-9]\d*\.0?)\s*[:：\s]?\s*(.*)", re.IGNORECASE)
-    section_pattern = re.compile(r"^(第[一二三四五六七八九十百]+节|Section\s*\d+|\d+\.\d+)\s*[:：\s]?\s*(.*)", re.IGNORECASE)
+    current_section_id = None
+    chapter_seq = 0
+    section_seq = 0
+    paragraph_seq = 0
+    fallback_chapter_counter = 0
 
-    seq_counter = 1
-    auto_chapter_counter = 1
-    last_was_chapter = False
+    def ensure_chapter(label: str, content_summary: str | None = None) -> str:
+        nonlocal chapter_seq, current_chapter_id, current_section_id
+        chapter_seq += 1
+        chapter_id = f"doc_{document_id}_chapter_{chapter_seq:03d}"
+        nodes.append(KnowledgeNodeInDB(
+            node_id=chapter_id,
+            document_id=document_id,
+            label=label,
+            parent_id=root_id,
+            content_summary=content_summary or label,
+            depth=1,
+            chunk_text=None,
+        ))
+        current_chapter_id = chapter_id
+        current_section_id = None
+        return chapter_id
 
-    for chunk_idx, chunk in enumerate(chunks):
+    def ensure_section(label: str, parent_id: str, content_summary: str | None = None) -> str:
+        nonlocal section_seq, current_section_id
+        section_seq += 1
+        section_id = f"doc_{document_id}_section_{section_seq:03d}"
+        nodes.append(KnowledgeNodeInDB(
+            node_id=section_id,
+            document_id=document_id,
+            label=label,
+            parent_id=parent_id,
+            content_summary=content_summary or label,
+            depth=2,
+            chunk_text=None,
+        ))
+        current_section_id = section_id
+        return section_id
+
+    def add_paragraph(label: str, parent_id: str, body_text: str) -> None:
+        nonlocal paragraph_seq
+        paragraph_seq += 1
+        paragraph_id = f"doc_{document_id}_paragraph_{paragraph_seq:03d}"
+        nodes.append(KnowledgeNodeInDB(
+            node_id=paragraph_id,
+            document_id=document_id,
+            label=label,
+            parent_id=parent_id,
+            content_summary=_make_summary(body_text),
+            depth=3,
+            chunk_text=body_text,
+        ))
+
+    def flush_paragraph_buffer(paragraph_lines: List[str], paragraph_fallback_index: int) -> None:
+        nonlocal current_chapter_id, current_section_id, fallback_chapter_counter
+        if not paragraph_lines:
+            return
+
+        body_text = "\n".join(paragraph_lines).strip()
+        if not body_text:
+            paragraph_lines.clear()
+            return
+
+        if current_chapter_id == root_id:
+            fallback_chapter_counter += 1
+            current_chapter_id = ensure_chapter(f"Chapter {fallback_chapter_counter}", _make_summary(paragraph_lines[0]))
+
+        if current_section_id is None:
+            current_section_id = ensure_section("Overview", current_chapter_id, _make_summary(body_text))
+
+        paragraph_label = _make_summary(paragraph_lines[0], limit=60) or f"Paragraph {paragraph_fallback_index}"
+        add_paragraph(paragraph_label, current_section_id, body_text)
+        paragraph_lines.clear()
+
+    paragraph_fallback_index = 0
+
+    for chunk in chunks:
         if not chunk.strip():
             continue
-            
-        lines = chunk.split('\n')
-        first_line = lines[0].strip()[:100]
-        
-        chapter_match = chapter_pattern.search(first_line)
-        section_match = section_pattern.search(first_line)
-        
-        node_id = f"doc_{document_id}_node_{seq_counter:03d}"
-        seq_counter += 1
 
-        if chapter_match:
-            # Explicit chapter found
-            label = chapter_match.group(2).strip()[:50]
-            if not label:
-                label = chapter_match.group(1).strip()
-            current_chapter_id = node_id
-            current_section_id = node_id
-            depth = 1
-            parent_id = root_id
-            nodes.append(KnowledgeNodeInDB(
-                node_id=node_id,
-                document_id=document_id,
-                label=label,
-                parent_id=parent_id,
-                content_summary=chunk[:100] + "...",
-                depth=depth,
-                chunk_text=chunk
-            ))
-            last_was_chapter = True
-        elif section_match:
-            # Explicit section found
-            label = section_match.group(2).strip()[:50]
-            if not label:
-                label = section_match.group(1).strip()
-            current_section_id = node_id
-            depth = 2
-            parent_id = current_chapter_id
-            nodes.append(KnowledgeNodeInDB(
-                node_id=node_id,
-                document_id=document_id,
-                label=label,
-                parent_id=parent_id,
-                content_summary=chunk[:100] + "...",
-                depth=depth,
-                chunk_text=chunk
-            ))
-            last_was_chapter = False
-        else:
-            # No explicit title: use heuristic to auto-create chapter if needed
-            # Criteria: very short lines likely indicate title or section break
-            is_likely_title = (
-                len(first_line) < 50 and 
-                len(first_line) > 3 and
-                not first_line.endswith(('。', '，', ',', '.', '!', '?', '？'))
-            )
-            
-            if is_likely_title and not last_was_chapter:
-                # Auto-create a chapter
-                auto_ch_node_id = f"doc_{document_id}_chapter_{auto_chapter_counter:03d}"
-                auto_chapter_counter += 1
-                auto_label = first_line[:40]
-                nodes.append(KnowledgeNodeInDB(
-                    node_id=auto_ch_node_id,
-                    document_id=document_id,
-                    label=auto_label,
-                    parent_id=root_id,
-                    content_summary=auto_label,
-                    depth=1,
-                    chunk_text=None
-                ))
-                current_chapter_id = auto_ch_node_id
-                current_section_id = auto_ch_node_id
-                parent_id = auto_ch_node_id
-                last_was_chapter = True
-            else:
-                parent_id = current_section_id
-                last_was_chapter = False
-            
-            # Add chunk node
-            label = first_line[:35] + "..." if len(first_line) > 35 else first_line
-            if not label or label.strip() == "。":
-                label = f"Paragraph {chunk_idx + 1}"
-            
-            nodes.append(KnowledgeNodeInDB(
-                node_id=node_id,
-                document_id=document_id,
-                label=label,
-                parent_id=parent_id,
-                content_summary=chunk[:100] + ("..." if len(chunk) > 100 else ""),
-                depth=3 if parent_id == current_section_id else 2,
-                chunk_text=chunk
-            ))
+        lines = [line.strip() for line in chunk.split("\n") if line.strip()]
+        if not lines:
+            continue
+
+        paragraph_lines: List[str] = []
+
+        for line in lines:
+            normalized = _normalize_title_line(line)
+            chapter_title = _detect_chapter_title(normalized)
+            section_title = None if chapter_title else _detect_section_title(normalized)
+
+            if chapter_title:
+                flush_paragraph_buffer(paragraph_lines, paragraph_fallback_index)
+                paragraph_fallback_index += 1
+                chapter_prefix, chapter_label = chapter_title
+                chapter_label = chapter_label or chapter_prefix
+                current_chapter_id = ensure_chapter(chapter_label, _make_summary(line))
+                current_section_id = None
+                continue
+
+            if section_title:
+                flush_paragraph_buffer(paragraph_lines, paragraph_fallback_index)
+                paragraph_fallback_index += 1
+                if current_chapter_id == root_id:
+                    fallback_chapter_counter += 1
+                    current_chapter_id = ensure_chapter(f"Chapter {fallback_chapter_counter}", _make_summary(line))
+                section_prefix, section_label = section_title
+                section_label = section_label or section_prefix
+                current_section_id = ensure_section(section_label, current_chapter_id, _make_summary(line))
+                continue
+
+            paragraph_lines.append(line)
+
+        flush_paragraph_buffer(paragraph_lines, paragraph_fallback_index)
+        paragraph_fallback_index += 1
 
     return nodes
