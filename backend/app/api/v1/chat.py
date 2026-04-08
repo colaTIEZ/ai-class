@@ -3,6 +3,7 @@
 实现 Quiz 初始化 API，触发 LangGraph 编排的问题生成流程。
 """
 
+import asyncio
 import json
 import hashlib
 import logging
@@ -144,6 +145,21 @@ def _sse_data(payload: dict[str, Any]) -> str:
     return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
 
+def _chunk_text(text: str, chunk_size: int = 10) -> list[str]:
+    """将文本分割成小块，用于流式显示。
+    
+    Args:
+        text: 要分割的文本
+        chunk_size: 每块的字符数（默认10个字符for较好的流式体验）
+        
+    Returns:
+        文本块列表
+    """
+    if not text:
+        return []
+    return [text[i:i + chunk_size] for i in range(0, len(text), chunk_size)]
+
+
 def _project_trace_entry(entry: Any) -> dict[str, Any] | None:
     if not isinstance(entry, dict):
         return None
@@ -248,11 +264,15 @@ async def submit_answer_stream(
                         "timestamp": datetime.utcnow().isoformat() + "Z",
                     }
                 )
+                await asyncio.sleep(0)  # 刷新流，立即发送数据到客户端
 
                 state: dict[str, Any] = dict(initial_state)
                 validation: dict[str, Any] = {}
 
                 for chunk in graph.stream(initial_state, config, stream_mode="updates"):
+                    # 在每个chunk处理后刷新流，防止缓冲多个事件
+                    await asyncio.sleep(0)
+                    
                     if not isinstance(chunk, dict):
                         continue
 
@@ -277,6 +297,7 @@ async def submit_answer_stream(
                                 "timestamp": datetime.utcnow().isoformat() + "Z",
                             }
                         )
+                        await asyncio.sleep(0)  # 刷新流，立即发送追踪事件
 
                         if node_name == "validate":
                             validation = state.get("validation_result") or {}
@@ -302,6 +323,7 @@ async def submit_answer_stream(
                             "timestamp": datetime.utcnow().isoformat() + "Z",
                         }
                     )
+                    await asyncio.sleep(0)  # 刷新流
                     return
 
                 node_id = request.current_node_id or request.current_question.current_node_id
@@ -342,55 +364,96 @@ async def submit_answer_stream(
                                 "timestamp": datetime.utcnow().isoformat() + "Z",
                             }
                         )
+                        await asyncio.sleep(0)  # 刷新流
 
                 if isinstance(hint, str) and hint.strip():
-                    yield _sse_data(
-                        {
-                            "type": "content",
-                            "data": {
-                                "text": hint,
-                                "hint_type": "scaffold" if tutor_mode == "semi_transparent" else "leading_question",
-                                "tutor_mode": tutor_mode,
-                                "escape_hatch_visible": escape_hatch_visible,
-                                "guardrail_reason": guardrail_reason,
-                                "needs_review_queued": needs_review_queued,
-                            },
-                            "trace_id": trace_id,
-                            "timestamp": datetime.utcnow().isoformat() + "Z",
-                        }
-                    )
+                    # 流式发送提示：分块逐个发送，实现"打字效果"
+                    hint_chunks = _chunk_text(hint.strip(), chunk_size=15)
+                    
+                    for i, chunk in enumerate(hint_chunks):
+                        # 每个块都包含所有必要的元数据
+                        yield _sse_data(
+                            {
+                                "type": "content",
+                                "data": {
+                                    "text": chunk,
+                                    "is_chunk": True,
+                                    "chunk_index": i,
+                                    "total_chunks": len(hint_chunks),
+                                    "hint_type": "scaffold" if tutor_mode == "semi_transparent" else "leading_question",
+                                    "tutor_mode": tutor_mode,
+                                    "escape_hatch_visible": escape_hatch_visible,
+                                    "guardrail_reason": guardrail_reason,
+                                    "needs_review_queued": needs_review_queued,
+                                },
+                                "trace_id": trace_id,
+                                "timestamp": datetime.utcnow().isoformat() + "Z",
+                            }
+                        )
+                        
+                        # 在块之间的间隔中让出事件循环（流式显示效果）
+                        if i < len(hint_chunks) - 1:
+                            await asyncio.sleep(0.015)  # 15ms间隔
+                        else:
+                            await asyncio.sleep(0)  # 最后块后立即刷新
                 elif validation.get("is_correct") is False:
-                    yield _sse_data(
-                        {
-                            "type": "content",
-                            "data": {
-                                "text": "Your answer is not quite there yet. Try focusing on the core concept again.",
-                                "hint_type": "leading_question",
-                                "tutor_mode": tutor_mode,
-                                "escape_hatch_visible": escape_hatch_visible,
-                                "guardrail_reason": guardrail_reason,
-                                "needs_review_queued": needs_review_queued,
-                            },
-                            "trace_id": trace_id,
-                            "timestamp": datetime.utcnow().isoformat() + "Z",
-                        }
-                    )
+                    # 分块发送错误反馈
+                    feedback_text = "Your answer is not quite there yet. Try focusing on the core concept again."
+                    feedback_chunks = _chunk_text(feedback_text, chunk_size=15)
+                    
+                    for i, chunk in enumerate(feedback_chunks):
+                        yield _sse_data(
+                            {
+                                "type": "content",
+                                "data": {
+                                    "text": chunk,
+                                    "is_chunk": True,
+                                    "chunk_index": i,
+                                    "total_chunks": len(feedback_chunks),
+                                    "hint_type": "leading_question",
+                                    "tutor_mode": tutor_mode,
+                                    "escape_hatch_visible": escape_hatch_visible,
+                                    "guardrail_reason": guardrail_reason,
+                                    "needs_review_queued": needs_review_queued,
+                                },
+                                "trace_id": trace_id,
+                                "timestamp": datetime.utcnow().isoformat() + "Z",
+                            }
+                        )
+                        
+                        if i < len(feedback_chunks) - 1:
+                            await asyncio.sleep(0.015)
+                        else:
+                            await asyncio.sleep(0)
                 elif validation.get("is_correct") is True:
-                    yield _sse_data(
-                        {
-                            "type": "content",
-                            "data": {
-                                "text": "Great job! Your answer is correct.",
-                                "hint_type": "check_understanding",
-                                "tutor_mode": tutor_mode,
-                                "escape_hatch_visible": escape_hatch_visible,
-                                "guardrail_reason": guardrail_reason,
-                                "needs_review_queued": needs_review_queued,
-                            },
-                            "trace_id": trace_id,
-                            "timestamp": datetime.utcnow().isoformat() + "Z",
-                        }
-                    )
+                    # 分块发送成功反馈
+                    success_text = "Great job! Your answer is correct."
+                    success_chunks = _chunk_text(success_text, chunk_size=15)
+                    
+                    for i, chunk in enumerate(success_chunks):
+                        yield _sse_data(
+                            {
+                                "type": "content",
+                                "data": {
+                                    "text": chunk,
+                                    "is_chunk": True,
+                                    "chunk_index": i,
+                                    "total_chunks": len(success_chunks),
+                                    "hint_type": "check_understanding",
+                                    "tutor_mode": tutor_mode,
+                                    "escape_hatch_visible": escape_hatch_visible,
+                                    "guardrail_reason": guardrail_reason,
+                                    "needs_review_queued": needs_review_queued,
+                                },
+                                "trace_id": trace_id,
+                                "timestamp": datetime.utcnow().isoformat() + "Z",
+                            }
+                        )
+                        
+                        if i < len(success_chunks) - 1:
+                            await asyncio.sleep(0.015)
+                        else:
+                            await asyncio.sleep(0)
 
                 first_byte_latency_ms = int((perf_counter() - started) * 1000)
                 yield _sse_data(
@@ -406,6 +469,7 @@ async def submit_answer_stream(
                         "timestamp": datetime.utcnow().isoformat() + "Z",
                     }
                 )
+                await asyncio.sleep(0)  # 刷新流，发送最终追踪事件
         except Exception as e:
             logger.exception("submit_answer_stream failed: %s", e)
             yield _sse_data(
@@ -416,6 +480,7 @@ async def submit_answer_stream(
                     "timestamp": datetime.utcnow().isoformat() + "Z",
                 }
             )
+            await asyncio.sleep(0)  # 刷新流，确保错误消息被发送
 
     return StreamingResponse(
         event_generator(),

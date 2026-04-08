@@ -221,7 +221,7 @@
             </svg>
             <span class="text-sm font-semibold tracking-wide" style="color: #1E40AF;">学习提示</span>
           </div>
-          <p class="text-sm leading-relaxed" style="color: var(--text-heading);">{{ quizStore.currentHint }}</p>
+          <p class="text-sm leading-relaxed" style="color: var(--text-heading);">{{ quizStore.displayedHint || quizStore.currentHint }}</p>
         </div>
       </transition>
     </div>

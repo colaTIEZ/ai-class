@@ -49,6 +49,9 @@ export interface StreamEvent {
     needs_review_queued?: boolean
     node_name?: string
     metadata?: Record<string, unknown>
+    is_chunk?: boolean  // 标记文本是流式块的一部分
+    chunk_index?: number  // 块的索引
+    total_chunks?: number  // 总块数
     [key: string]: unknown
   }
   trace_id: string
@@ -127,11 +130,13 @@ export async function submitAnswerStream(
   const reader = response.body.getReader()
   const decoder = new TextDecoder()
   let buffer = ''
+  let eventCount = 0
 
   const flushBuffer = (input: string) => {
     const blocks = input.split(/\r?\n\r?\n/)
     const remainder = blocks.pop() ?? ''
     for (const block of blocks) {
+      if (!block.trim()) continue
       const lines = block.split(/\r?\n/)
       const dataLines = lines.filter((line) => line.startsWith('data:'))
       if (!dataLines.length) continue
@@ -140,8 +145,11 @@ export async function submitAnswerStream(
         .join('\n')
       if (!jsonPayload) continue
       try {
-        onEvent(JSON.parse(jsonPayload) as StreamEvent)
-      } catch {
+        const event = JSON.parse(jsonPayload) as StreamEvent
+        onEvent(event)
+        eventCount++
+      } catch (e) {
+        console.warn('无法解析SSE事件:', jsonPayload, e)
         continue
       }
     }
@@ -153,6 +161,9 @@ export async function submitAnswerStream(
     if (done) {
       buffer += decoder.decode()
       buffer = flushBuffer(buffer)
+      if (buffer.trim()) {
+        console.warn('未处理的缓冲区数据:', buffer)
+      }
       break
     }
     buffer += decoder.decode(value, { stream: true })

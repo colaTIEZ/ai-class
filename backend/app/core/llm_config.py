@@ -11,7 +11,7 @@ class LLMConfig:
 
     # Runtime defaults
     TEMPERATURE = 0.3
-    TIMEOUT_SECONDS = 10.0
+    TIMEOUT_SECONDS = 30.0
     MAX_RETRIES = 3
     RETRY_BASE_WAIT_SECONDS = 0.2
 

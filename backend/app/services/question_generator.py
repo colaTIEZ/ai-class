@@ -12,6 +12,7 @@ from langchain_core.messages import SystemMessage, HumanMessage
 
 from app.core.config import settings
 from app.core.llm_config import LLMConfig
+from app.graph.nodes.llm_runtime import invoke_with_retry
 from app.graph.prompts.question_gen_prompts import (
         QUESTION_GEN_SYSTEM_PROMPT,
         MULTIPLE_CHOICE_TEMPLATE,
@@ -189,7 +190,14 @@ def generate_question(
         HumanMessage(content=user_message)
     ]
     
-    response = llm.invoke(messages)
+    def _invoke_question_llm():
+        return llm.invoke(messages)
+
+    response = invoke_with_retry(
+        _invoke_question_llm,
+        max_attempts=LLMConfig.MAX_RETRIES,
+        base_delay_seconds=LLMConfig.RETRY_BASE_WAIT_SECONDS,
+    )
     
     # 解析响应
     return parse_llm_response(response.content)

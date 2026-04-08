@@ -45,6 +45,46 @@ export const useQuizStore = defineStore('quiz', () => {
   const traceLog = ref<TracePulse[]>([]);
   const currentAnswer = ref('');
   const activeStreamRequestId = ref(0);
+  const displayedHint = ref<string | null>(null);
+
+  let hintRevealTimer: ReturnType<typeof setInterval> | null = null;
+  let hintRevealQueue = '';
+
+  function stopHintRevealTimer() {
+    if (hintRevealTimer !== null) {
+      clearInterval(hintRevealTimer);
+      hintRevealTimer = null;
+    }
+  }
+
+  function clearHintRevealState() {
+    stopHintRevealTimer();
+    hintRevealQueue = '';
+    displayedHint.value = null;
+  }
+
+  function setImmediateHint(text: string) {
+    stopHintRevealTimer();
+    hintRevealQueue = '';
+    displayedHint.value = text;
+  }
+
+  function startHintRevealTimer() {
+    if (hintRevealTimer !== null) {
+      return;
+    }
+
+    hintRevealTimer = setInterval(() => {
+      if (!hintRevealQueue) {
+        stopHintRevealTimer();
+        return;
+      }
+
+      const nextSlice = hintRevealQueue.slice(0, 2);
+      hintRevealQueue = hintRevealQueue.slice(nextSlice.length);
+      displayedHint.value = (displayedHint.value || '') + nextSlice;
+    }, 24);
+  }
 
   // 计算属性
   const selectedNodeIdsArray = computed(() => Array.from(selectedNodeIds.value));
@@ -125,6 +165,7 @@ export const useQuizStore = defineStore('quiz', () => {
     isStreaming.value = true;
     error.value = null;
     currentHint.value = null;
+    clearHintRevealState();
     traceLog.value = [];
     guardrailReason.value = null;
     const requestId = activeStreamRequestId.value + 1;
@@ -147,7 +188,17 @@ export const useQuizStore = defineStore('quiz', () => {
           traceId.value = event.trace_id || traceId.value;
           if (event.type === 'content') {
             const text = String(event.data?.text ?? '');
-            currentHint.value = text;
+            const isChunk = Boolean(event.data?.is_chunk);
+
+            if (isChunk) {
+              currentHint.value = (currentHint.value || '') + text;
+              hintRevealQueue += text;
+              startHintRevealTimer();
+            } else {
+              currentHint.value = text;
+              setImmediateHint(text);
+            }
+            
             tutorMode.value = (event.data?.tutor_mode as 'socratic' | 'semi_transparent') || tutorMode.value;
             escapeHatchVisible.value = Boolean(event.data?.escape_hatch_visible);
             guardrailReason.value = String(event.data?.guardrail_reason ?? '') || null;
@@ -166,6 +217,9 @@ export const useQuizStore = defineStore('quiz', () => {
       error.value = e instanceof Error ? e.message : 'An error occurred';
     } finally {
       isStreaming.value = false;
+      if (hintRevealQueue) {
+        startHintRevealTimer();
+      }
     }
   }
 
@@ -178,6 +232,7 @@ export const useQuizStore = defineStore('quiz', () => {
     traceId.value = null;
     isLoading.value = false;
     currentHint.value = null;
+    clearHintRevealState();
     escapeHatchVisible.value = false;
     guardrailReason.value = null;
     tutorMode.value = 'socratic';
@@ -211,6 +266,7 @@ export const useQuizStore = defineStore('quiz', () => {
     isStreaming,
     traceLog,
     currentAnswer,
+    displayedHint,
     hasQuestion,
     startQuiz,
     submitAnswer,
