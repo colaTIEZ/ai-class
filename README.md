@@ -79,4 +79,8 @@ npm run dev
 - 数据库：backend/data/ai_class.db
 - 上传目录：backend/data/uploads
 
+## 6. License
+
+本项目采用 MIT License，详见 [LICENSE](LICENSE)。
+
 
