@@ -120,7 +120,8 @@ async def init_quiz(request: QuizInitRequest) -> QuizInitResponse:
         question_data = QuestionData(
             question_text=current_question["question_text"],
             options=current_question.get("options"),
-            correct_answer=current_question["correct_answer"]
+            correct_answer=current_question["correct_answer"],
+            current_node_id=current_question.get("current_node_id") or state.get("current_node_id"),
         )
         
         response_data = QuizInitResponseData(

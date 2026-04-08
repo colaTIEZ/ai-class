@@ -103,6 +103,37 @@ class TestQuizInitEndpoint:
         
         assert data["data"]["question"]["options"] is None
         assert data["data"]["question_type"] == "short_answer"
+
+    @patch("app.api.v1.chat.invoke_quiz_generation")
+    def test_init_response_includes_current_node_id(self, mock_invoke, client):
+        """初始化响应应携带 current_node_id 供后续答题落库使用。"""
+        mock_state: SocraticState = {
+            "selected_node_ids": ["node_1"],
+            "retrieved_chunks": [{"chunk_text": "Test content"}],
+            "current_question": {
+                "question_text": "What is Python?",
+                "options": ["A language", "A snake", "A game", "A movie"],
+                "correct_answer": "A language",
+                "current_node_id": "node_1",
+            },
+            "question_type": "multiple_choice",
+            "current_node_id": "node_1",
+            "trace_log": [],
+            "error_message": None,
+        }
+        mock_invoke.return_value = {
+            "state": mock_state,
+            "thread_id": "test-thread-id",
+        }
+
+        response = client.post(
+            "/api/v1/quiz/init",
+            json={"selected_node_ids": ["node_1"]},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["data"]["question"]["current_node_id"] == "node_1"
     
     @patch("app.api.v1.chat.invoke_quiz_generation")
     def test_retrieval_error(self, mock_invoke, client):

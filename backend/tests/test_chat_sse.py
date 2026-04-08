@@ -173,6 +173,34 @@ def test_submit_answer_sse_skip_action_uses_question_node_id(force_no_openai_key
     assert bool(needs_review) is True
 
 
+def test_submit_answer_sse_wrong_answer_persists_with_question_node_id(force_no_openai_key):
+    client = TestClient(app)
+    payload = _payload("5")
+    payload.pop("current_node_id", None)
+
+    response = client.post("/api/v1/chat/message", json=payload)
+    assert response.status_code == 200
+
+    conn = get_connection()
+    try:
+        row = conn.execute(
+            """
+            SELECT node_id, is_correct
+            FROM question_history
+            WHERE question_text = ?
+              AND user_answer = ?
+            ORDER BY attempted_at DESC, question_record_id DESC
+            LIMIT 1
+            """,
+            ("2+2?", "5"),
+        ).fetchone()
+        assert row is not None
+        assert row["node_id"] == "node-1"
+        assert int(row["is_correct"]) == 0
+    finally:
+        conn.close()
+
+
 def test_submit_answer_sse_escape_action_rejected_without_guardrail(force_no_openai_key):
     client = TestClient(app)
     payload = _payload("5")
