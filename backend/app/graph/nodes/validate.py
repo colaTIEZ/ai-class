@@ -45,7 +45,7 @@ def _build_llm() -> ChatOpenAI:
 def _rule_based_fallback(question_text: str, correct_answer: str, student_answer: str) -> ValidationResult:
     normalized_student = student_answer.lower()
     normalized_correct = correct_answer.lower()
-    normalized_question = question_text.lower()
+    normalized_question = question_text.lower() 
 
     if normalized_correct and normalized_student == normalized_correct:
         return ValidationResult(

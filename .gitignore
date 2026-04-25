@@ -73,6 +73,7 @@ test_out.txt
 _bmad/
 .agent/
 _progress/
+.worktrees/
 
 backend/data/ai_class.db-shm
 backend/data/ai_class.db-wal
