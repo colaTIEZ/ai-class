@@ -74,6 +74,8 @@ _bmad/
 .agent/
 _progress/
 .worktrees/
+.specify/
+.github/
 
 backend/data/ai_class.db-shm
 backend/data/ai_class.db-wal
