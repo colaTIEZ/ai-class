@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build the first production-style foundation for `ai-class` by introducing PostgreSQL, Milvus, object storage abstraction, and a dynamic scope view API without breaking the existing upload-to-quiz workflow.
+**Goal:** Build the first production-style foundation for `ai-class` by introducing PostgreSQL, Milvus, and object storage abstraction without breaking the existing upload-to-quiz workflow.
 
 ---
 
@@ -85,7 +85,7 @@ This plan intentionally covers only the first independently shippable subsystem:
 - PostgreSQL business persistence
 - Milvus retrieval foundation
 - Object storage abstraction with local fallback and OSS-ready interface
-- Dynamic scope view backend + frontend shell
+
 
 This plan does **not** implement:
 
@@ -121,8 +121,7 @@ Those should be written as follow-on plans after this phase lands.
 - `backend/app/services/object_storage.py`
 - `backend/app/services/milvus_store.py`
 - `backend/app/services/retrieval_service.py`
-- `backend/app/services/scope_view_builder.py`
-- `backend/app/schemas/scope_view.py`
+
 - `backend/alembic.ini`
 - `backend/alembic/env.py`
 - `backend/alembic/versions/20260425_01_phase1_core_tables.py`
@@ -133,13 +132,11 @@ Those should be written as follow-on plans after this phase lands.
 - `backend/tests/test_postgres_models.py`
 - `backend/tests/test_object_storage.py`
 - `backend/tests/test_retrieval_service.py`
-- `backend/tests/test_scope_view_api.py`
-- `frontend/src/views/DocumentView.scope.spec.ts`
+
 
 ### New frontend files
 
-- `frontend/src/components/scope/ScopeView.vue`
-- `frontend/src/components/scope/ScopeView.spec.ts`
+
 
 ---
 
@@ -165,20 +162,20 @@ def test_phase1_settings_support_enterprise_backends():
         object_storage_backend="local",
         object_storage_bucket="ai-class-dev",
         object_storage_local_root="data/object_store",
-        scope_view_enabled=True,
+
     )
 
     assert settings.database_url.startswith("postgresql+psycopg://")
     assert settings.milvus_uri == "http://localhost:19530"
     assert settings.object_storage_backend == "local"
     assert settings.object_storage_bucket == "ai-class-dev"
-    assert settings.scope_view_enabled is True
+
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `pytest tests/test_phase1_config.py -v`
-Expected: FAIL with missing `milvus_uri`, `object_storage_backend`, or `scope_view_enabled` fields on `Settings`
+Expected: FAIL with missing `milvus_uri` or `object_storage_backend` fields on `Settings`
 
 - [ ] **Step 3: Add enterprise dependencies and settings**
 
@@ -220,7 +217,7 @@ class Settings(BaseSettings):
     object_storage_secret_key: str = ""
     object_storage_local_root: str = str(Path(__file__).resolve().parent.parent.parent / "data" / "object_store")
 
-    scope_view_enabled: bool = True
+
     default_tenant_id: str = "local-dev"
 
     openai_api_key: str = ""
@@ -251,7 +248,6 @@ MILVUS_COLLECTION_NAME=knowledge_chunks
 OBJECT_STORAGE_BACKEND=local
 OBJECT_STORAGE_BUCKET=ai-class-dev
 OBJECT_STORAGE_LOCAL_ROOT=backend/data/object_store
-SCOPE_VIEW_ENABLED=true
 DEFAULT_TENANT_ID=local-dev
 ```
 
@@ -441,7 +437,7 @@ Run: `pytest tests/test_postgres_models.py -v`
 Expected: PASS
 
 Run: `alembic upgrade head`
-Expected: SUCCESS with new `documents`, `chunks`, `scope_views`, and `scope_view_items` tables created in PostgreSQL
+Expected: SUCCESS with new `documents` and `chunks` tables created in PostgreSQL
 
 - [ ] **Step 5: Commit**
 
@@ -1298,7 +1294,7 @@ git add backend/app/services/milvus_store.py backend/app/services/retrieval_serv
 git commit -m "feat: add milvus retrieval foundation"
 ```
 
-### Task 5: Add Dynamic Scope View Backend API
+### Task 5: Deprecated Scope View Reference
 
 **Files:**
 - Create: `backend/app/schemas/scope_view.py`
@@ -1402,7 +1398,7 @@ git add backend/app/schemas/scope_view.py backend/app/services/scope_view_builde
 git commit -m "feat: add scope view api"
 ```
 
-### Task 6: Replace Tree-Only Document Page With Scope View Container
+### Task 6: Deprecated Scope View Reference
 
 **Files:**
 - Create: `frontend/src/components/scope/ScopeView.vue`
@@ -1537,7 +1533,7 @@ git add frontend/src/components/scope/ScopeView.vue frontend/src/components/scop
 git commit -m "feat: add scope view frontend shell"
 ```
 
-### Task 7: Run End-To-End Verification For The New Foundation
+### Task 7: Verification For Phase 1 Foundation
 
 **Files:**
 - Test: `backend/tests/test_health.py`
@@ -1581,7 +1577,7 @@ git commit -m "test: verify phase1 enterprise rag foundation"
 
 - Phase 1 scope is limited to one independently testable subsystem
 - PostgreSQL, Milvus, and object storage all have explicit file ownership
-- Scope view and quiz retrieval responsibilities are separated
+- Quiz retrieval responsibilities are separated
 - Tenant-aware fields are built into the new schema from the start
 - Parent-child retrieval metadata is introduced now so later advanced RAG work does not require schema churn
 
@@ -1737,7 +1733,7 @@ def test_with_custom_provider():
 | `backend/app/services/object_storage.py` | Task 3 | `test_object_storage.py` |
 | `backend/app/db/models.py` | Task 1 | `test_postgres_models.py` |
 | `backend/app/graph/nodes/retrieve.py` | Task 4 | `test_retrieve_node.py` |
-| `frontend/src/components/scope/ScopeView.vue` | Task 7 | `ScopeView.spec.ts` |
+
 
 ### Phase 1 Integration Checklist
 
@@ -1746,8 +1742,8 @@ def test_with_custom_provider():
 - [ ] Object storage abstraction in place (task 3)
 - [ ] Embedding service + async job queue (task 4)
 - [ ] Retrieval service with tenant isolation (task 4)
-- [ ] Scope view API endpoint (task 5)
-- [ ] Scope view UI component (task 7)
+
+
 - [ ] All tests passing (task 6)
 - [ ] No cross-tenant data visible in any layer
 - [ ] Upload → embedding → retrieval workflow end-to-end
@@ -1808,7 +1804,7 @@ Later (job queue worker):
 
 User → Start Quiz → FastAPI /quiz
          ↓
-    User selects scope (ScopeView)
+    User selects knowledge tree node
     User enters question
     Call retrieve_chunks(RetrievalQuery(tenant_id, scope_ids, question))
          ↓

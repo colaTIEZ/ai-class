@@ -44,7 +44,6 @@
 - 使用 `LangChain` 组织 RAG 组件与多模态提示链路
 - 使用 `Milvus` 构建高质量混合检索能力
 - 使用 `PostgreSQL + OSS + Redis` 完成企业级分层存储
-- 将“静态知识树”升级为“动态测验范围视图”
 - 支持图片、表格、页区域等知识资产参与检索和出题
 - 支持多租户隔离与租户级检索过滤
 - 支持 LLM Token 追踪、成本统计与模型降级
@@ -75,8 +74,7 @@
 ### 3.2 关键设计结论
 
 - “图”不是系统核心真相数据，`知识资产索引` 才是核心
-- 用户选择的不是“图本身”，而是 `测验范围`
-- 范围视图是检索结果的组织形式，而不是永久静态结构
+- 用户选择的是明确的知识节点或章节范围，而不是临时生成的视图本身
 - 多模态资产必须作为一等公民参与索引、检索和生成
 
 ---
@@ -97,7 +95,7 @@
 
 - 文件上传
 - 文档管理
-- 范围视图查询
+- 文档结构查询
 - 题目生成与流式返回
 - 答题与评估
 - 任务状态查询
@@ -112,7 +110,6 @@
 
 - 文档接入工作流
 - 解析与索引构建工作流
-- 范围视图构建工作流
 - 出题工作流
 - 答案评估与学习反馈工作流
 
@@ -151,7 +148,7 @@
 职责拆分：
 
 - `Milvus`：向量索引、稀疏向量、多向量索引、混合检索
-- `PostgreSQL`：文档、chunk、范围视图、题目、答题、资产关系元数据
+- `PostgreSQL`：文档、chunk、题目、答题、资产关系元数据
 - `OSS`：原始 PDF、图片、页截图、表格导出、解析中间产物
 - `Redis`：缓存、任务状态、限流、热点视图缓存
 
@@ -212,95 +209,9 @@
 
 ---
 
-## 5. 从静态知识树到动态测验范围视图
+## 5. 动态范围视图暂缓
 
-### 5.1 当前知识树方案的问题
-
-当前系统中的知识树构建更接近“固定规则抽取的文档层级树”，存在以下问题：
-
-- 对没有规范章节结构的文档适配性差
-- 无法稳定表示非结构化资料
-- 无法自然处理多次增量上传
-- 难以维护一张完整、稳定、长期有效的全局图
-
-### 5.2 新的设计目标
-
-重构后不再强制生成固定全局知识树，而是引入：
-
-`动态测验范围视图（Dynamic Scope View）`
-
-其本质是：
-
-`基于当前知识库检索结果，对知识资产进行聚合、分组和局部关系组织，以便用户快速选择测验范围`
-
-### 5.3 允许的展示形式
-
-系统可以根据场景动态选择以下一种或多种形式：
-
-- `主题分组卡片`
-- `可展开目录树`
-- `标签聚类列表`
-- `局部关系图`
-
-默认建议：
-
-`主题分组卡片 + 可展开目录树`
-
-局部关系图只作为高级视图，不作为默认主入口。
-
-### 5.4 Scope View 的生成方式
-
-推荐流程：
-
-1. 用户进入某课程或知识库
-2. 系统先做 `范围意图理解（Scope Intent Understanding）`
-3. 根据最近上传文档、关键词、主题标签、章节元数据召回候选资产
-4. 将候选结果聚合为若干主题簇或目录项
-5. 生成可供前端展示的范围视图
-6. 用户选择一个或多个范围后，系统仅在该范围内执行检索与出题
-
-### 5.5 范围意图理解（Scope Intent Understanding）
-
-范围意图理解发生在：
-
-`范围视图生成之前`
-
-它的目标不是直接生成最终检索 query，而是帮助系统判断：
-
-- 用户想练习哪个主题
-- 用户更偏向哪类知识资产
-- 应优先展示哪些主题簇、目录项、sheet、表格或文档
-
-典型输入：
-
-- “我想练矩阵乘法”
-- “只考第二章公式”
-- “复习这次上传 Excel 里的利润表分析”
-
-典型输出：
-
-- 推荐主题簇
-- 推荐目录节点
-- 推荐文档集合
-- 推荐 sheet / 表格范围
-- 默认勾选的候选测验范围
-
-设计要求：
-
-- 这一阶段服务于 `Scope View Builder`
-- 可以使用轻量模型或规则+模型混合方式
-- 输出结果应尽量结构化，避免直接把自然语言结果传给前端
-- 若用户没有显式输入意图，则退化为基于知识库热点、最近上传和主题聚类生成默认范围视图
-
-### 5.6 模块命名建议
-
-当前“知识树生成”模块建议重命名为：
-
-- `Scope View Builder`
-或
-- `Knowledge Scope Organizer`
-
-这样更符合企业级职责表达。
+动态测验范围视图及其相关工作流已从当前版本范围中移除。当前阶段抛弃知识树和节点选择流程，不新增范围视图生成。
 
 ---
 
@@ -589,9 +500,8 @@ Milvus 中至少维护以下索引能力：
 
 边界说明：
 
-- `Scope Intent Understanding` 用于范围视图生成前的候选范围组织
 - `Query Rewriting` 用于范围选定后的正式检索
-- 两者都属于“意图理解”，但服务的业务阶段不同，不应混用
+- 查询重写只服务于正式检索，不承担范围组织职责
 
 ### 8.6 多租户检索隔离
 
@@ -624,8 +534,6 @@ Milvus 设计建议：
 - `chunks`
 - `knowledge_assets`
 - `chunk_asset_links`
-- `scope_views`
-- `scope_view_items`
 - `questions`
 - `question_generation_logs`
 - `quiz_attempts`
@@ -661,7 +569,6 @@ Token 与成本追踪要求：
 - `user_id`
 - `chunk_id`
 - `document_id`
-- `scope_id`
 - `node_or_topic_id`
 - `sheet_id`
 - `parent_chunk_id`
@@ -711,37 +618,24 @@ Token 与成本追踪要求：
 
 `load_from_oss -> parse_document -> extract_assets -> build_placeholders -> parent_child_chunking -> embedding -> milvus_upsert -> postgres_upsert -> cache_refresh`
 
-### 10.3 范围视图构建工作流
+### 10.3 出题工作流
 
 流程建议：
 
-`collect_user_goal -> understand_scope_intent -> collect_candidate_assets -> cluster_topics -> build_scope_view -> cache_scope_view`
+`rewrite_query -> retrieve_hybrid -> rerank -> hydrate_parent_context -> hydrate_assets -> build_prompt -> generate_question -> validate_output`
 
 说明：
 
-- `understand_scope_intent` 用于在生成范围视图前理解用户目标
-- 该节点的输出用于影响候选资产召回、主题聚类和默认展示顺序
-- 这一阶段不负责最终检索 query 的重写
+- `rewrite_query` 发生在正式检索之前，用于提升召回质量
+- 该节点只优化检索效果，不负责生成范围视图
 
-### 10.4 出题工作流
-
-流程建议：
-
-`resolve_scope -> rewrite_query -> retrieve_hybrid -> rerank -> hydrate_parent_context -> hydrate_assets -> build_prompt -> generate_question -> validate_output`
-
-说明：
-
-- `resolve_scope` 表示范围已经由用户选定
-- `rewrite_query` 发生在范围确定之后、正式检索之前
-- 该节点只优化范围内检索效果，不负责生成范围视图
-
-### 10.5 答题评估工作流
+### 10.4 答题评估工作流
 
 流程建议：
 
 `validate_answer -> retrieve_supporting_context -> evaluate_answer -> generate_feedback -> persist_attempt`
 
-### 10.6 LLM 调用治理工作流
+### 10.5 LLM 调用治理工作流
 
 流程建议：
 
@@ -822,12 +716,11 @@ Token 与成本追踪要求：
 - Hybrid Retrieval
 - 业务数据与检索数据分层
 
-### Phase 2：从知识树升级到动态范围视图
+### Phase 2：后续范围组织能力评估
 
 目标：
 
-- 不再依赖固定知识树
-- 构建动态测验范围选择能力
+- 根据实际使用反馈，再评估是否引入更高级的范围组织能力
 
 学习重点：
 
@@ -887,7 +780,6 @@ Token 与成本追踪要求：
 
 - 将 PDF 出题系统重构为 `基于 LangGraph 的企业级 Agentic RAG 学习系统`
 - 引入 `Milvus + 混合检索 + Rerank` 提升测验范围内知识召回准确率
-- 设计 `动态测验范围视图` 替代固定知识树，适配增量知识库场景
 - 构建 `多模态知识资产索引`，支持文本、图片、表格、Excel 的统一检索与关联出题
 - 采用 `OSS + PostgreSQL + Milvus` 完成知识资产、元数据和向量索引的企业级分层存储
 - 使用 `LangSmith / Ragas` 建立检索与题目生成效果的可观测与评测闭环
@@ -898,7 +790,6 @@ Token 与成本追踪要求：
 
 本项目最值得学习和重构的方向，不是继续强化“自动生成一棵知识树”，而是完成以下认知升级：
 
-- 从 `静态结构抽取` 升级到 `动态范围组织`
 - 从 `文本向量检索` 升级到 `混合检索 + 多模态资产回查`
 - 从 `单体功能链路` 升级到 `LangGraph 驱动的企业级工作流`
 - 从 `本地轻量存储` 升级到 `OSS + PostgreSQL + Milvus` 分层架构
