@@ -72,7 +72,7 @@ This section records key architectural decisions made during Phase 1 design clar
 
 ---
 
-**Architecture:** Keep the app as a modular monolith, but split persistence, retrieval, and scope-view responsibilities into explicit layers. Replace SQLite-centric storage assumptions with repository and storage abstractions so later phases can add multimodal assets, tenant isolation, and LLM Ops without rewriting the whole system.
+**Architecture:** Keep the app as a modular monolith, but split persistence and retrieval responsibilities into explicit layers. Replace SQLite-centric storage assumptions with repository and storage abstractions so later phases can add multimodal assets, tenant isolation, and LLM Ops without rewriting the whole system.
 
 **Tech Stack:** FastAPI, SQLAlchemy 2.x, Alembic, PostgreSQL, Milvus, LangGraph, LangChain, Redis-ready config, Vue 3, Vitest
 
@@ -278,7 +278,7 @@ git commit -m "feat: add enterprise storage and retrieval settings"
 - [ ] **Step 1: Write the failing persistence schema test**
 
 ```python
-from app.db.models import ChunkRecord, DocumentRecord, ScopeViewItemRecord, ScopeViewRecord
+from app.db.models import ChunkRecord, DocumentRecord
 
 
 def test_phase1_models_expose_required_columns():
@@ -290,8 +290,7 @@ def test_phase1_models_expose_required_columns():
     assert "parent_chunk_id" in ChunkRecord.__table__.c
     assert "scope_hint" in ChunkRecord.__table__.c
 
-    assert ScopeViewRecord.__tablename__ == "scope_views"
-    assert ScopeViewItemRecord.__tablename__ == "scope_view_items"
+    # Scope-view tables are out of Phase 1 scope
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -325,7 +324,7 @@ SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 # backend/app/db/models.py
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -357,28 +356,7 @@ class ChunkRecord(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
-class ScopeViewRecord(Base):
-    __tablename__ = "scope_views"
-
-    id: Mapped[str] = mapped_column(String(128), primary_key=True)
-    tenant_id: Mapped[str] = mapped_column(String(64), index=True)
-    document_id: Mapped[int | None] = mapped_column(ForeignKey("documents.id"), nullable=True)
-    title: Mapped[str] = mapped_column(String(255))
-    intent_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-
-
-class ScopeViewItemRecord(Base):
-    __tablename__ = "scope_view_items"
-
-    id: Mapped[str] = mapped_column(String(128), primary_key=True)
-    scope_view_id: Mapped[str] = mapped_column(ForeignKey("scope_views.id"), index=True)
-    tenant_id: Mapped[str] = mapped_column(String(64), index=True)
-    item_type: Mapped[str] = mapped_column(String(32))
-    item_key: Mapped[str] = mapped_column(String(255))
-    label: Mapped[str] = mapped_column(String(255))
-    rank: Mapped[int] = mapped_column(Integer, default=0)
-    is_default: Mapped[bool] = mapped_column(Boolean, default=False)
+# Scope-view records are intentionally not part of Phase 1.
 ```
 
 ```python
@@ -1294,261 +1272,21 @@ git add backend/app/services/milvus_store.py backend/app/services/retrieval_serv
 git commit -m "feat: add milvus retrieval foundation"
 ```
 
-### Task 5: Deprecated Scope View Reference
-
-**Files:**
-- Create: `backend/app/schemas/scope_view.py`
-- Create: `backend/app/services/scope_view_builder.py`
-- Modify: `backend/app/api/v1/documents.py`
-- Test: `backend/tests/test_scope_view_api.py`
-
-- [ ] **Step 1: Write the failing scope view API test**
-
-```python
-from fastapi.testclient import TestClient
-
-from app.main import app
-
-client = TestClient(app)
-
-
-def test_scope_view_endpoint_returns_groups(monkeypatch):
-    import app.api.v1.documents as docs_api
-
-    monkeypatch.setattr(
-        docs_api,
-        "build_scope_view",
-        lambda tenant_id, document_id, user_goal=None: {
-            "scope_view_id": "scope-1",
-            "title": "Recommended scope",
-            "groups": [{"group_id": "g-1", "label": "Matrix basics", "items": [{"item_key": "chapter-1", "label": "Chapter 1"}]}],
-        },
-    )
-
-    response = client.get("/api/v1/documents/1/scope-view")
-    assert response.status_code == 200
-    assert response.json()["title"] == "Recommended scope"
-```
-
-- [ ] **Step 2: Run test to verify it fails**
-
-Run: `pytest tests/test_scope_view_api.py -v`
-Expected: FAIL with 404 for `/api/v1/documents/1/scope-view`
-
-- [ ] **Step 3: Add schema, builder, and API route**
-
-```python
-# backend/app/schemas/scope_view.py
-from pydantic import BaseModel
-
-
-class ScopeViewItem(BaseModel):
-    item_key: str
-    label: str
-    item_type: str = "topic"
-    selected_by_default: bool = False
-
-
-class ScopeViewGroup(BaseModel):
-    group_id: str
-    label: str
-    items: list[ScopeViewItem]
-
-
-class ScopeViewResponse(BaseModel):
-    scope_view_id: str
-    title: str
-    groups: list[ScopeViewGroup]
-```
-
-```python
-# backend/app/services/scope_view_builder.py
-def build_scope_view(tenant_id: str, document_id: int, user_goal: str | None = None) -> dict:
-    return {
-        "scope_view_id": f"scope-{tenant_id}-{document_id}",
-        "title": "Recommended scope",
-        "groups": [
-            {
-                "group_id": "recent-1",
-                "label": user_goal or "Document topics",
-                "items": [],
-            }
-        ],
-    }
-```
-
-```python
-# backend/app/api/v1/documents.py
-@router.get("/{document_id}/scope-view", response_model=ScopeViewResponse)
-async def get_document_scope_view(document_id: int, user_goal: str | None = Query(default=None)):
-    tenant_id = settings.default_tenant_id
-    payload = await asyncio.to_thread(build_scope_view, tenant_id, document_id, user_goal)
-    return ScopeViewResponse(**payload)
-```
-
-- [ ] **Step 4: Run API tests**
-
-Run: `pytest tests/test_scope_view_api.py tests/test_documents_tree.py -v`
-Expected: PASS
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add backend/app/schemas/scope_view.py backend/app/services/scope_view_builder.py backend/app/api/v1/documents.py backend/tests/test_scope_view_api.py
-git commit -m "feat: add scope view api"
-```
-
-### Task 6: Deprecated Scope View Reference
-
-**Files:**
-- Create: `frontend/src/components/scope/ScopeView.vue`
-- Create: `frontend/src/components/scope/ScopeView.spec.ts`
-- Modify: `frontend/src/api/documents.ts`
-- Modify: `frontend/src/views/DocumentView.vue`
-- Test: `frontend/src/views/DocumentView.scope.spec.ts`
-
-- [ ] **Step 1: Write the failing frontend test**
-
-```ts
-import { mount, flushPromises } from '@vue/test-utils'
-import { createPinia } from 'pinia'
-
-import DocumentView from './DocumentView.vue'
-
-vi.mock('../api/documents', () => ({
-  getDocumentScopeView: vi.fn().mockResolvedValue({
-    scope_view_id: 'scope-1',
-    title: 'Recommended scope',
-    groups: [{ group_id: 'g-1', label: 'Matrix basics', items: [{ item_key: 'chapter-1', label: 'Chapter 1', item_type: 'topic', selected_by_default: true }] }],
-  }),
-  getDocumentTree: vi.fn().mockResolvedValue({ document_id: 1, nodes: [], total_nodes: 0 }),
-}))
-
-test('renders scope view groups before quiz start', async () => {
-  const wrapper = mount(DocumentView, {
-    global: {
-      plugins: [createPinia()],
-      mocks: {
-        $route: { params: { id: '1' } },
-        $router: { push: vi.fn() },
-      },
-    },
-  })
-  await flushPromises()
-  expect(wrapper.text()).toContain('Matrix basics')
-})
-```
-
-- [ ] **Step 2: Run test to verify it fails**
-
-Run: `npm --prefix frontend run test -- src/views/DocumentView.scope.spec.ts`
-Expected: FAIL because `getDocumentScopeView` and `ScopeView` do not exist yet
-
-- [ ] **Step 3: Add scope view API typings and UI shell**
-
-```ts
-// frontend/src/api/documents.ts
-export interface ScopeViewItem {
-  item_key: string
-  label: string
-  item_type: string
-  selected_by_default: boolean
-}
-
-export interface ScopeViewGroup {
-  group_id: string
-  label: string
-  items: ScopeViewItem[]
-}
-
-export interface ScopeViewResponse {
-  scope_view_id: string
-  title: string
-  groups: ScopeViewGroup[]
-}
-
-export async function getDocumentScopeView(documentId: number): Promise<ScopeViewResponse> {
-  const response = await fetch(`/api/v1/documents/${documentId}/scope-view`)
-  if (!response.ok) throw new Error(`Scope view failed: ${response.status} ${response.statusText}`)
-  return response.json()
-}
-```
-
-```vue
-<!-- frontend/src/components/scope/ScopeView.vue -->
-<script setup lang="ts">
-import { computed } from 'vue'
-import { useQuizStore } from '../../stores/quiz'
-import type { ScopeViewResponse } from '../../api/documents'
-
-const props = defineProps<{ scopeView: ScopeViewResponse }>()
-const quizStore = useQuizStore()
-
-const allDefaultKeys = computed(() =>
-  props.scopeView.groups.flatMap((group) =>
-    group.items.filter((item) => item.selected_by_default).map((item) => item.item_key),
-  ),
-)
-</script>
-
-<template>
-  <section class="grid gap-4">
-    <article v-for="group in scopeView.groups" :key="group.group_id" class="glass-panel p-4">
-      <h2 class="text-lg font-semibold">{{ group.label }}</h2>
-      <button
-        v-for="item in group.items"
-        :key="item.item_key"
-        class="mt-3 rounded-lg border px-3 py-2 text-left"
-        @click="quizStore.toggleNodeSelection(item.item_key, !quizStore.selectedNodeIds.includes(item.item_key))"
-      >
-        {{ item.label }}
-      </button>
-    </article>
-  </section>
-</template>
-```
-
-```vue
-<!-- frontend/src/views/DocumentView.vue -->
-<script setup lang="ts">
-const scopeView = ref<ScopeViewResponse | null>(null)
-scopeView.value = await getDocumentScopeView(documentId.value)
-</script>
-
-<template>
-  <ScopeView v-if="scopeView" :scopeView="scopeView" />
-  <KnowledgeGraph v-else-if="treeData" :treeData="treeData" :masteryByParent="masteryByParent" />
-</template>
-```
-
-- [ ] **Step 4: Run frontend tests**
-
-Run: `npm --prefix frontend run test -- src/components/scope/ScopeView.spec.ts src/views/DocumentView.scope.spec.ts`
-Expected: PASS
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add frontend/src/components/scope/ScopeView.vue frontend/src/components/scope/ScopeView.spec.ts frontend/src/api/documents.ts frontend/src/views/DocumentView.vue frontend/src/views/DocumentView.scope.spec.ts
-git commit -m "feat: add scope view frontend shell"
-```
-
 ### Task 7: Verification For Phase 1 Foundation
 
 **Files:**
 - Test: `backend/tests/test_health.py`
-- Test: `backend/tests/test_scope_view_api.py`
 - Test: `backend/tests/test_retrieval_service.py`
-- Test: `frontend/src/views/DocumentView.scope.spec.ts`
+- Test: `frontend/src/views/DocumentView.spec.ts`
 
 - [ ] **Step 1: Run backend verification suite**
 
-Run: `pytest tests/test_phase1_config.py tests/test_postgres_models.py tests/test_object_storage.py tests/test_retrieval_service.py tests/test_scope_view_api.py -v`
+Run: `pytest tests/test_phase1_config.py tests/test_postgres_models.py tests/test_object_storage.py tests/test_retrieval_service.py -v`
 Expected: PASS
 
 - [ ] **Step 2: Run frontend verification suite**
 
-Run: `npm --prefix frontend run test -- src/components/scope/ScopeView.spec.ts src/views/DocumentView.scope.spec.ts`
+Run: `npm --prefix frontend run test -- src/views/DocumentView.spec.ts src/views/DocumentsEntryView.spec.ts`
 Expected: PASS
 
 - [ ] **Step 3: Run build verification**
@@ -1561,8 +1299,8 @@ Expected: PASS with Vite production build output in `frontend/dist`
 ```text
 1. Upload a PDF from UploadView
 2. Confirm backend stores source file through object storage abstraction
-3. Open /documents/:id and verify scope view renders
-4. Select a scope item and start quiz
+3. Open /documents/:id and verify knowledge tree renders
+4. Select nodes and start quiz
 5. Confirm retrieval still returns quiz context
 ```
 
@@ -1583,7 +1321,7 @@ git commit -m "test: verify phase1 enterprise rag foundation"
 
 ## Follow-On Plans To Write Next
 
-- `Phase 2 Dynamic Scope Intelligence`
+- `Phase 2 Retrieval Quality Enhancements`
 - `Phase 3 Multimodal Asset And Excel Retrieval`
 - `Phase 4 LLM Ops, Cost Tracking, And Fallback Gateway`
 
@@ -1731,7 +1469,7 @@ def test_with_custom_provider():
 | `backend/app/services/milvus_store.py` | Task 4 | `test_retrieval_service.py` |
 | `backend/app/services/retrieval_service.py` | Task 4 | `test_retrieval_service.py` |
 | `backend/app/services/object_storage.py` | Task 3 | `test_object_storage.py` |
-| `backend/app/db/models.py` | Task 1 | `test_postgres_models.py` |
+| `backend/app/db/models.py` | Task 2 | `test_postgres_models.py` |
 | `backend/app/graph/nodes/retrieve.py` | Task 4 | `test_retrieve_node.py` |
 
 
@@ -1744,7 +1482,7 @@ def test_with_custom_provider():
 - [ ] Retrieval service with tenant isolation (task 4)
 
 
-- [ ] All tests passing (task 6)
+- [ ] All tests passing (task 7)
 - [ ] No cross-tenant data visible in any layer
 - [ ] Upload → embedding → retrieval workflow end-to-end
 
