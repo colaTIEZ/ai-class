@@ -10,6 +10,7 @@ from fastapi import APIRouter, UploadFile, File, Query, status
 
 from app.core.config import settings
 from app.services.processing_queue import processing_queue
+from app.services.object_storage import get_object_storage
 from app.schemas.queue import QueueResponse, QueueItemData
 from app.core.exceptions import AppException
 from app.schemas.knowledge_tree import KnowledgeTree, KnowledgeNode
@@ -111,7 +112,12 @@ async def upload_document(file: UploadFile = File(...), force: bool = Query(defa
         # 将阻塞磁盘 IO 移交独立线程
         await asyncio.to_thread(sync_save_file, temp_path, content)
 
+        # Store via object storage abstraction
+        storage = get_object_storage()
+        tenant_id = settings.default_tenant_id
         document_id = int(job_id.replace('-', '')[:8], 16)
+        storage_key = f"raw/{tenant_id}/{document_id}/source.pdf"
+        await asyncio.to_thread(storage.put_bytes, storage_key, content)
 
         def _insert_pending_document() -> None:
             conn = get_connection()
