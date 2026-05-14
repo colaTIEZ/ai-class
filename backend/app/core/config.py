@@ -1,7 +1,9 @@
 """应用配置模块 - 使用 pydantic-settings 管理环境变量"""
 
-from pydantic_settings import BaseSettings
 from pathlib import Path
+
+from pydantic import Field
+from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
@@ -13,21 +15,36 @@ class Settings(BaseSettings):
     debug: bool = False
 
     # 数据库配置
-    database_url: str = "sqlite:///data/ai_class.db"
+    database_url: str = "postgresql+psycopg://postgres:postgres@localhost:5432/ai_class"
     database_path: str = str(
         Path(__file__).resolve().parent.parent.parent / "data" / "ai_class.db"
     )
 
-    # 外部 API 配置（后续 Epic 使用）
+    # Milvus 向量数据库配置
+    milvus_uri: str = "http://localhost:19530"
+    milvus_token: str = ""
+    milvus_collection_name: str = "knowledge_chunks"
+
+    # 对象存储配置
+    object_storage_backend: str = "local"
+    object_storage_bucket: str = "ai-class-dev"
+    object_storage_endpoint: str = ""
+    object_storage_access_key: str = ""
+    object_storage_secret_key: str = ""
+    object_storage_local_root: str = str(
+        Path(__file__).resolve().parent.parent.parent / "data" / "object_store"
+    )
+
+    # 多租户默认配置
+    default_tenant_id: str = "local-dev"
+
+    # 外部 API 配置
     openai_api_key: str = ""
     openai_base_url: str = ""
     openai_model: str = ""
-    # 独立的 embedding 模型配置，避免与对话模型混用
     openai_embedding_model: str = ""
-    # 当首选 embedding 模型不可用时，按需回退
     openai_embedding_fallback_model: str = ""
 
-    # 上传与队列配置 (2C2G Memory Protection) 按配置进行调整
     MAX_UPLOAD_SIZE: int = 10485760  # 10MB
     MAX_QUEUE_SIZE: int = 100
     zombie_task_timeout_seconds: int = 300
@@ -37,7 +54,7 @@ class Settings(BaseSettings):
     port: int = 8000
 
     # CORS 配置
-    cors_origins: list[str] = ["http://localhost:5173"]
+    cors_origins: list[str] = Field(default_factory=lambda: ["http://localhost:5173"])
 
     model_config = {
         "env_file": ".env",

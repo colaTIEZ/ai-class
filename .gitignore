@@ -78,6 +78,9 @@ _progress/
 !.specify/specs/
 !.specify/plans/
 .github/
+.claude/
 
 backend/data/ai_class.db-shm
 backend/data/ai_class.db-wal
+/backend/data/object_store/ai-class-dev/raw/local-dev/
+/backend/alembic/
