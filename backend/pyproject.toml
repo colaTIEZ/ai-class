@@ -62,6 +62,11 @@ dependencies = [
     "uvicorn==0.42.0",
     "xxhash==3.6.0",
     "zstandard==0.25.0",
+    "sqlalchemy>=2.0.41",
+    "alembic>=1.16.1",
+    "psycopg[binary]>=3.2.9",
+    "pymilvus>=2.5.6",
+    "langchain-milvus>=0.1.10",
 ]
 
 [[tool.uv.index]]
