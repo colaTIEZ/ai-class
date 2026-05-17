@@ -14,7 +14,7 @@ def get_milvus_client():
 
 
 def ensure_collection_exists(client) -> None:
-    from pymilvus import CollectionSchema, DataType, FieldSchema
+    from pymilvus import CollectionSchema, DataType, FieldSchema, MilvusClient
 
     collection_name = settings.milvus_collection_name
 
@@ -34,26 +34,30 @@ def ensure_collection_exists(client) -> None:
         description="Knowledge chunks with 1024-dim vectors",
     )
 
+    index_params = MilvusClient.prepare_index_params()
+    index_params.add_index(
+        field_name="dense_vector",
+        index_type="HNSW",
+        metric_type="COSINE",
+        params={"M": 48, "efConstruction": 500},
+    )
+
     client.create_collection(
         collection_name=collection_name,
         schema=schema,
-        index_params={
-            "index_type": "HNSW",
-            "metric_type": "COSINE",
-            "params": {"M": 48, "efConstruction": 500},
-        },
+        index_params=index_params,
     )
     logger.info(f"Created Milvus collection: {collection_name}")
 
 
 async def upsert_chunk_with_embedding(
-    client,
-    chunk_id: str,
-    tenant_id: str,
-    document_id: int,
-    body_text: str,
-    embedding: list[float],
-    title: str | None = None,
+        client,
+        chunk_id: str,
+        tenant_id: str,
+        document_id: int,
+        body_text: str,
+        embedding: list[float],
+        title: str | None = None,
 ) -> None:
     ensure_collection_exists(client)
 
