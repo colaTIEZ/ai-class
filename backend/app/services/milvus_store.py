@@ -62,13 +62,13 @@ async def upsert_chunk_with_embedding(
     ensure_collection_exists(client)
 
     data = {
-        "chunk_id": [chunk_id],
-        "tenant_id": [tenant_id],
-        "document_id": [document_id],
-        "title": [title],
-        "body_text": [body_text],
-        "embedding_version": ["1.0"],
-        "dense_vector": [embedding],
+        "chunk_id": chunk_id,
+        "tenant_id": tenant_id,
+        "document_id": document_id,
+        "title": title,
+        "body_text": body_text,
+        "embedding_version": "1.0",
+        "dense_vector": embedding,
     }
 
     try:

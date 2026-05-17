@@ -68,7 +68,7 @@ async def retrieve_chunks(
                 "title": result.get("title"),
                 "body_text": result.get("body_text"),
                 "document_id": result.get("document_id"),
-                "score": result["_distance"],
+                "score": result.get("distance", result.get("_distance", 0)),
             })
 
     except Exception as e:
