@@ -60,6 +60,17 @@ services:
       - etcd
       - minio
 
+  attu:
+    image: zilliz/attu:latest
+    container_name: ai-class-attu
+    restart: unless-stopped
+    environment:
+      MILVUS_URL: http://milvus:19530
+    ports:
+      - "${ATTU_PORT:-8000}:3000"
+    depends_on:
+      - milvus
+
   redis:
     image: redis:latest
     container_name: ai-class-redis
